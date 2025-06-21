@@ -7,7 +7,7 @@ AWS_REGION="us-east-1"
 KEY_NAME="retail_airflow_key" # The name of your .pem file for SSH access
 INSTANCE_TYPE="t3.medium" # t2.medium or larger is recommended
 AMI_ID="ami-0f3f13f145e66a0a3" # Amazon Linux 2 AMI for us-east-1
-PROJECT_REPO_URL="https://github.com/your-username/your-airflow-repo.git" # Your project's Git repo URL
+PROJECT_REPO_URL="https://github.com/Mitchell-MC/OnlineRetailProject.git" # Your project's Git repo URL
 SECURITY_GROUP_NAME="airflow-sg"
 
 # ==============================================================================
