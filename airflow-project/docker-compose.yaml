@@ -1,0 +1,108 @@
+# docker-compose.yaml
+
+# Define common properties for Airflow services to avoid repetition (DRY principle).
+x-airflow-common: &airflow-common
+  build:
+    context: .
+  env_file:
+    - ./airflow.env
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    # IMPORTANT CHANGE: Airflow containers now also have access to the Spark jobs directory.
+    # This allows the SparkSubmitOperator to find the application script.
+    - ./jobs:/opt/airflow/jobs
+    # Preserving custom volume mounts from your original file
+    - ../CSVDump:/opt/airflow/CSVDump
+    - ../data_lake:/opt/airflow/data_lake
+  networks:
+    - airflow_spark_network
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+# Define common properties for Spark services.
+x-spark-common: &spark-common
+  image: bitnami/spark:3.5
+  volumes:
+    # The 'jobs' directory is mounted into the Spark containers.
+    - ./jobs:/bitnami/spark/jobs
+  networks:
+    - airflow_spark_network
+
+services:
+  # The Database for Airflow's metadata.
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    networks:
+      - airflow_spark_network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # The Master Node (🧠): Acts as the cluster manager and coordinates tasks.
+  spark-master:
+    <<: *spark-common
+    command: bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "9090:8080" # Spark Master Web UI
+      - "7077:7077" # Spark submission port for spark-submit
+
+  # The Worker Nodes (⛏️): Execute tasks assigned by the master node.
+  spark-worker:
+    <<: *spark-common
+    command: bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
+
+  # This service handles all one-time initialization steps.
+  airflow-init:
+    <<: *airflow-common
+    command: >
+      bash -c "airflow db migrate"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Airflow Scheduler: Responsible for scheduling jobs and managing task dependencies.
+  scheduler:
+    <<: *airflow-common
+    command: airflow scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # The Airflow Webserver: Provides the UI for monitoring and managing workflows.
+  webserver:
+    <<: *airflow-common
+    command: airflow api-server
+    ports:
+      - "8080:8080"
+    depends_on:
+      scheduler:
+        condition: service_started
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Define the custom network for all services to communicate.
+networks:
+  airflow_spark_network:
+    driver: bridge
+
+# Define the named volume for persistent Postgres data.
+volumes:
+  postgres-db-volume:
