@@ -7,6 +7,10 @@ __pycache__/
 2019-Oct.csv
 CSVDump/2019-Oct.csv
 
+# Log files (too big)
+*.log
+airflow-project/logs/
+
 # C extensions
 *.so
 
