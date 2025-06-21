@@ -5,6 +5,7 @@ __pycache__/
 
 #CSV dump (too big)
 2019-Oct.csv
+CSVDump/2019-Oct.csv
 
 # C extensions
 *.so
