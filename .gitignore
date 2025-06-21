@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#CSV dump (too big)
+2019-Oct.csv
+
 # C extensions
 *.so
 
