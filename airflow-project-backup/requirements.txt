@@ -1,0 +1,21 @@
+# Airflow providers
+apache-airflow-providers-fab
+apache-airflow-providers-apache-spark
+apache-airflow-providers-snowflake
+apache-airflow-providers-amazon
+
+# Spark and related packages
+pyspark>=3.5.0
+py4j>=0.10.9
+
+# Snowflake connectivity
+snowflake-connector-python>=3.0.0
+snowflake-sqlalchemy>=1.4.0
+
+# AWS/S3 connectivity
+boto3>=1.26.0
+botocore>=1.29.0
+
+# Additional utilities
+pandas>=1.5.0
+numpy>=1.24.0
