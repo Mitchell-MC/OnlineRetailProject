@@ -21,8 +21,6 @@ x-airflow-common: &airflow-common
   depends_on:
     postgres:
       condition: service_healthy
-    redis:
-      condition: service_healthy
 
 # Define common properties for Spark services.
 x-spark-common: &spark-common
@@ -34,17 +32,6 @@ x-spark-common: &spark-common
     - airflow_spark_network
 
 services:
-  # Redis service for Celery broker
-  redis:
-    image: redis:7-alpine
-    networks:
-      - airflow_spark_network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # The Database for Airflow's metadata.
   postgres:
     image: postgres:13

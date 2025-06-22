@@ -1,31 +1,16 @@
 #!/bin/bash
+set -e
 
 # ==============================================================================
-# Configuration Section: Edit these variables to match your setup
+# Configuration Section
 # ==============================================================================
 AWS_REGION="us-east-1"
-KEY_NAME="retail_airflow_key" # The name of your .pem file for SSH access
-INSTANCE_TYPE="t3.medium" # t2.medium or larger is recommended
-AMI_ID="ami-0f3f13f145e66a0a3" # Amazon Linux 2 AMI for us-east-1
-PROJECT_REPO_URL="https://github.com/Mitchell-MC/OnlineRetailProject.git" # Your project's Git repo URL
+KEY_NAME="retail_airflow_key"
+INSTANCE_TYPE="t3.medium"
+AMI_ID="ami-0a7d80731ae1b2435" # Ubuntu Server 22.04 LTS AMI for us-east-1
+PROJECT_REPO_URL="https://github.com/Mitchell-MC/OnlineRetailProject.git"
 SECURITY_GROUP_NAME="airflow-sg"
-
-# ==============================================================================
-# Secure Credential Input: The script will now prompt for secrets.
-# ==============================================================================
-echo "Please enter your credentials. For passwords/secrets, typing will be hidden."
-
-read -p "Enter your AWS Access Key ID: " AWS_ACCESS_KEY_ID
-read -s -p "Enter your AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY
-echo ""
-read -s -p "Enter your Snowflake Password: " SNOWFLAKE_PASS
-echo ""
-
-# Static credentials from your project setup
-AIRFLOW_USER="admin"
-AIRFLOW_PASS="admin"
-SNOWFLAKE_USER="MITCHELLMCC"
-SNOWFLAKE_ACCOUNT="KLRPPBG-NEC57960"
+ROOT_VOLUME_SIZE=30 # NEW: Set the root EBS volume size in GiB
 
 # ==============================================================================
 # Script Execution
@@ -42,7 +27,8 @@ if [ -z "$SECURITY_GROUP_ID" ]; then
     
     echo "Adding ingress rules..."
     aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr 0.0.0.0/0 --region "$AWS_REGION"
-    aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 8080 --cidr 0.0.0.0/0 --region "$AWS_REGION"
+    aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 8080 --cidr 0.0.0.0/0 --region "$AWS_REGION" # For Airflow UI
+    aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 9090 --cidr 0.0.0.0/0 --region "$AWS_REGION" # For Spark Master UI
     
     echo "Security Group created with ID: $SECURITY_GROUP_ID"
 else
@@ -51,61 +37,46 @@ fi
 
 
 # --- 2. Define User Data Script for EC2 Instance ---
-echo "Preparing setup script for the new instance..."
+echo "Preparing setup script for the new Ubuntu instance..."
+PROJECT_DIR_NAME=$(basename "$PROJECT_REPO_URL" .git)
+
 USER_DATA=$(cat <<EOF
 #!/bin/bash
-# Update and install dependencies
-yum update -y
-yum install -y docker git
+# Update and install initial dependencies
+apt-get update -y
+apt-get install -y ca-certificates curl git
+
+# Set up Docker's official repository
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=\\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \\$(. /etc/os-release && echo "\\$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update -y
+
+# Install Docker Engine, CLI, Containerd, and Compose plugin
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Start Docker and enable it to start on boot
-service docker start
-usermod -a -G docker ec2-user
-
-# Install Docker Compose v2 (plugin)
-yum install -y docker-compose-plugin
+systemctl start docker
+systemctl enable docker
+usermod -a -G docker ubuntu
 
 # Clone the project repository
-cd /home/ec2-user
+cd /home/ubuntu
 git clone "$PROJECT_REPO_URL"
-
-# Navigate to the project directory
-PROJECT_DIR=\$(basename "$PROJECT_REPO_URL" .git)
-cd "\$PROJECT_DIR"
-
-# --- Create configuration files with the credentials provided ---
-# Create .env file in the main folder
-cat > .env <<EOL
-ACCESS_KEY=$AWS_ACCESS_KEY_ID
-SECRET_KEY=$AWS_SECRET_ACCESS_KEY
-AIRFLOW_USERNAME=$AIRFLOW_USER
-AIRFLOW_PASSWORD=$AIRFLOW_PASS
-EOL
-
-# Create .env file in the Airflow_EMR subfolder
-cat > Airflow_EMR/.env <<EOL
-AIRFLOW__WEBSERVER__SECRET_KEY=229e57aeb295d76f2db5d75bfa78865c7e40b17e6db96cae8d
-AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
-AIRFLOW_UID=1000
-AIRFLOW_GID=0
-EOL
-
-# Give execute permissions to the build script
-chmod +x Airflow_EMR/build_airflow_in_docker.sh
-
-# Run the project's build script to start Airflow
-./Airflow_EMR/build_airflow_in_docker.sh
+chown -R ubuntu:ubuntu "$PROJECT_DIR_NAME"
 EOF
 )
 
 # --- 3. Launch EC2 Instance ---
-echo "Launching EC2 instance ($INSTANCE_TYPE)..."
+echo "Launching EC2 instance ($INSTANCE_TYPE) with a ${ROOT_VOLUME_SIZE}GiB root volume..."
 INSTANCE_ID=$(aws ec2 run-instances \
     --image-id "$AMI_ID" \
     --instance-type "$INSTANCE_TYPE" \
     --key-name "$KEY_NAME" \
     --security-group-ids "$SECURITY_GROUP_ID" \
     --user-data "$USER_DATA" \
+    --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":${ROOT_VOLUME_SIZE},\"VolumeType\":\"gp3\"}}]" \
     --output text --query 'Instances[0].InstanceId' --region "$AWS_REGION")
 
 echo "Instance created with ID: $INSTANCE_ID. Waiting for it to become available..."
@@ -117,14 +88,23 @@ aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region "$AWS_REGIO
 PUBLIC_IP=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --output text --query 'Reservations[0].Instances[0].PublicIpAddress' --region "$AWS_REGION")
 
 # --- 4. Display Final Information ---
-echo "--------------------------------------------------"
+echo "------------------------------------------------------------------"
 echo "✅ EC2 Instance is now running!"
 echo
 echo "   Public IP Address: $PUBLIC_IP"
-echo "   SSH Command: ssh -i \"$KEY_NAME.pem\" ec2-user@$PUBLIC_IP"
-echo "   Airflow UI: http://$PUBLIC_IP:8080"
+echo "   SSH Command: ssh -i \"$KEY_NAME.pem\" ubuntu@$PUBLIC_IP"
 echo
-echo "   Username: $AIRFLOW_USER"
-echo "   Password: $AIRFLOW_PASS"
-echo "--------------------------------------------------"
-echo "Note: It may take a few minutes for the Airflow services to fully start. Please be patient."
+echo "   IMPORTANT NEXT STEPS:"
+echo "   1. From your local machine, navigate to the directory containing your key:"
+echo "      cd path/to/OnlineRetailProject/airlfow-project"
+echo "   2. SSH into your new EC2 instance using the command printed above."
+echo "   3. Navigate to the project folder on the server: cd ~/$PROJECT_DIR_NAME"
+echo "   4. Create the environment file: nano .env"
+echo "   5. Copy the contents from your local 'env.example' file and paste them into nano."
+echo "   6. Fill in your secret credentials in the .env file on the server and save it."
+echo "   7. Run Airflow: docker compose up -d"
+echo
+echo "   Airflow UI will be available at: http://$PUBLIC_IP:8080"
+echo "   Spark Master UI will be available at: http://$PUBLIC_IP:9090"
+echo "------------------------------------------------------------------"
+echo "Note: It may take a few minutes for the EC2 instance to boot and for services to start."
