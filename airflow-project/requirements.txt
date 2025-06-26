@@ -1,12 +1,10 @@
 # Airflow providers
 apache-airflow-providers-fab
-apache-airflow-providers-apache-spark
 apache-airflow-providers-snowflake
 apache-airflow-providers-amazon
 
-# Spark and related packages
-pyspark>=3.5.0
-py4j>=0.10.9
+# Astro SDK for S3 and Snowflake
+astro-sdk-python[amazon,snowflake]
 
 # Snowflake connectivity
 snowflake-connector-python>=3.0.0
