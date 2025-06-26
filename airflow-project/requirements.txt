@@ -1,8 +1,11 @@
-# Airflow providers
-apache-airflow-providers-fab
-apache-airflow-providers-apache-spark
-apache-airflow-providers-snowflake
-apache-airflow-providers-amazon
+# Airflow providers (pinned to versions compatible with Airflow 2.9.2)
+apache-airflow-providers-fab==1.1.1
+apache-airflow-providers-apache-spark==4.3.0
+apache-airflow-providers-snowflake==5.5.1
+apache-airflow-providers-amazon==8.24.0
+
+# Constraint to prevent Airflow upgrade
+apache-airflow==2.9.2
 
 # Spark and related packages
 pyspark>=3.5.0

@@ -97,7 +97,7 @@ services:
   # The Airflow Webserver: Provides the UI for monitoring and managing workflows.
   webserver:
     <<: *airflow-common
-    command: airflow api-server
+    command: airflow webserver
     ports:
       - "8080:8080"
     depends_on:

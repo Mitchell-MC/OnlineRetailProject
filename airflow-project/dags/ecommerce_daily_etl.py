@@ -51,7 +51,7 @@ with DAG(
             "spark.snowflake.password": "{{ conn.snowflake_default.password }}",
             "spark.snowflake.url": "{{ conn.snowflake_default.host }}",
             "spark.snowflake.sfDatabase": "{{ conn.snowflake_default.extra_dejson.database }}",
-            "spark.snowflake.sfSchema": "{{ conn.snowflake_default.extra_dejson.schema }}",
+            "spark.snowflake.sfSchema": "{{ conn.snowflake_default.schema }}",
             "spark.snowflake.sfWarehouse": "{{ conn.snowflake_default.extra_dejson.warehouse }}"
         },
     )
