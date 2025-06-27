@@ -1,24 +1,9 @@
-# Airflow providers (pinned to versions compatible with Airflow 2.9.2)
-apache-airflow-providers-fab==1.1.1
-apache-airflow-providers-apache-spark==4.3.0
+# Astro SDK with Snowflake (Snowpark) support
+astro-sdk-python[snowflake]>=1.5
+
+# Required Airflow providers
 apache-airflow-providers-snowflake==5.5.1
 apache-airflow-providers-amazon==8.24.0
 
-# Constraint to prevent Airflow upgrade
+# Pin Airflow version for consistency
 apache-airflow==2.9.2
-
-# Spark and related packages
-pyspark>=3.5.0
-py4j>=0.10.9
-
-# Snowflake connectivity
-snowflake-connector-python>=3.0.0
-snowflake-sqlalchemy>=1.4.0
-
-# AWS/S3 connectivity
-boto3>=1.26.0
-botocore>=1.29.0
-
-# Additional utilities
-pandas>=1.5.0
-numpy>=1.24.0

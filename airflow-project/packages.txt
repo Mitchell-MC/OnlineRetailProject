@@ -1,0 +1,10 @@
+# This file is used to install OS-level packages into the Astro Runtime environment
+# using the apt-get package manager.
+#
+# For example, to install git and wget, you would add:
+# git
+# wget
+#
+# For the current e-commerce ETL pipeline using the Astro SDK with Snowpark,
+# no additional OS packages are required. The Astro Runtime base image
+# contains all necessary system libraries.
