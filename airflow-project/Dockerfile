@@ -1,22 +1,22 @@
-# Start from the official Apache Airflow image
-FROM apache/airflow:2.9.2
+# 1. Start with the Astro Runtime image, which is a best practice for running Airflow with the Astro CLI. 
+# Pinning the version ensures a stable and predictable environment. [cite: 81, 82]
+FROM quay.io/astronomer/astro-runtime:10.0.0
 
-# Install Java (required for Spark)
-USER root
-RUN apt-get update && \
-    apt-get install -y openjdk-17-jdk-headless && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# 2. Copy the OS-level dependency file. [cite: 83]
+# The commented-out lines below show the best practice for installing these packages
+# by temporarily switching to the root user.
+COPY packages.txt .
+# USER root
+# RUN apt-get update && xargs -a packages.txt apt-get install -y && apt-get clean
+# USER astro
 
-# Set JAVA_HOME environment variable
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-ENV PATH=$PATH:$JAVA_HOME/bin
+# 3. Copy the Python requirements file and install all dependencies. [cite: 85]
+# This step ensures that all necessary Python packages, including providers and the Astro SDK, are available.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the requirements file into the image
-COPY requirements.txt /
-
-# Install the python packages specified in requirements.txt
-RUN pip install --no-cache-dir -r /requirements.txt
-
-# Set the user to airflow to avoid permission issues
-USER airflow
+# 4. Copy your project's directories into the Astro Runtime image.
+# The Astro project structure separates DAGs, plugins, and include files for better organization.
+COPY dags /usr/local/airflow/dags
+COPY plugins /usr/local/airflow/plugins
+COPY include /usr/local/airflow/include
