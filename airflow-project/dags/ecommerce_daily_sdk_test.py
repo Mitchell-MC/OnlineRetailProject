@@ -1,4 +1,4 @@
-# dags/ecommerce_daily_sdk.py
+# dags/ecommerce_daily_sdk_test.py
 
 import pendulum
 from airflow.decorators import dag
@@ -13,7 +13,7 @@ from astro.sql.operators.load_file import LoadFileOperator
 S3_CONN_ID = "aws_default"
 SNOWFLAKE_CONN_ID = "snowflake_default"
 # --- UPDATED S3 Path for partitioned structure ---
-S3_INPUT_PATH = "s3://kafka-cust-transactions/raw/user_events/event_type=*/**/*.parquet"
+S3_INPUT_PATH = "s3://kafka-cust-transactions/raw/user_events/event_type=*/"
 # --- UPDATED Snowflake Database, Schema, and Table ---
 SNOWFLAKE_TABLE = "ECOMMERCE_DB.ANALYTICS.CUSTOMER_360_PROFILES"
 
@@ -24,13 +24,13 @@ output_table = Table(name=SNOWFLAKE_TABLE, conn_id=SNOWFLAKE_CONN_ID)
     start_date=pendulum.datetime(2025, 6, 21, tz="UTC"),
     schedule="0 1 * * *",
     catchup=False,
-    tags=["ecommerce", "sdk", "etl"],
+    tags=["ecommerce", "sdk", "etl", "test"],
 )
-def ecommerce_daily_etl_sdk():
+def ecommerce_daily_etl_sdk_test():
     # 1. READ (Extract)
     raw_events_table = LoadFileOperator(
         task_id="load_events_from_s3",
-        input_file=File(path=S3_INPUT_PATH, conn_id=S3_CONN_ID),
+        input_file=File(path=S3_INPUT_PATH, conn_id=S3_CONN_ID, filetype="parquet"),
         output_table=Table(conn_id=SNOWFLAKE_CONN_ID) # Let Astro create a temporary table
     )
 
@@ -58,4 +58,4 @@ def ecommerce_daily_etl_sdk():
     # Set dependencies
     raw_events_table
 
-ecommerce_daily_etl_sdk()
+ecommerce_daily_etl_sdk_test() 
