@@ -10,9 +10,6 @@ apache-airflow-providers-redis==3.0.0
 apache-airflow-providers-celery==3.4.0
 apache-airflow-providers-apache-spark==4.3.0
 
-# Pin Airflow version for consistency
-apache-airflow==2.9.2
-
 # Additional dependencies
 pandas==2.0.3
 numpy==1.24.3
