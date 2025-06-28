@@ -1,15 +1,18 @@
 #!/bin/bash
 set -e
 
-# ==============================================================================
+# Define AWS CLI path
+AWS_CLI="/c/Progra~1/Amazon/AWSCLIV2/aws.exe"
+
+# ============================================================================== 
 # Configuration Section
 # ==============================================================================
 AWS_REGION="us-east-1"
-KEY_NAME="retail_airflow_key"
+KEY_NAME="3A_Pipe_EC2"
 INSTANCE_TYPE="t3.medium"
 AMI_ID="ami-0a7d80731ae1b2435" # Ubuntu Server 22.04 LTS AMI for us-east-1
 PROJECT_REPO_URL="https://github.com/Mitchell-MC/OnlineRetailProject.git"
-SECURITY_GROUP_NAME="airflow-sg"
+SECURITY_GROUP_NAME="airflow-ec2-sg"
 ROOT_VOLUME_SIZE=30 # NEW: Set the root EBS volume size in GiB
 
 # ==============================================================================
@@ -17,18 +20,27 @@ ROOT_VOLUME_SIZE=30 # NEW: Set the root EBS volume size in GiB
 # ==============================================================================
 echo "Starting setup process in region: $AWS_REGION"
 
+# Test AWS CLI connectivity
+echo "Testing AWS CLI connectivity..."
+"$AWS_CLI" sts get-caller-identity || { echo "AWS CLI not configured properly"; exit 1; }
+
 # --- 1. Check for and Create Security Group (Idempotent Logic) ---
 echo "Checking for security group '$SECURITY_GROUP_NAME'..."
-SECURITY_GROUP_ID=$(aws ec2 describe-security-groups --group-names "$SECURITY_GROUP_NAME" --query 'SecurityGroups[0].GroupId' --output text --region "$AWS_REGION" 2>/dev/null)
+SECURITY_GROUP_ID=$("$AWS_CLI" ec2 describe-security-groups --group-names "$SECURITY_GROUP_NAME" --query 'SecurityGroups[0].GroupId' --output text --region "$AWS_REGION" 2>/dev/null || echo "")
 
 if [ -z "$SECURITY_GROUP_ID" ]; then
     echo "Security Group '$SECURITY_GROUP_NAME' not found. Creating a new one..."
-    SECURITY_GROUP_ID=$(aws ec2 create-security-group --group-name "$SECURITY_GROUP_NAME" --description "Security group for Airflow EC2" --output text --query 'GroupId' --region "$AWS_REGION")
+    SECURITY_GROUP_ID=$("$AWS_CLI" ec2 create-security-group --group-name "$SECURITY_GROUP_NAME" --description "Security group for Airflow EC2" --output text --query 'GroupId' --region "$AWS_REGION")
+    
+    if [ -z "$SECURITY_GROUP_ID" ]; then
+        echo "Failed to create security group"
+        exit 1
+    fi
     
     echo "Adding ingress rules..."
-    aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr 0.0.0.0/0 --region "$AWS_REGION"
-    aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 8080 --cidr 0.0.0.0/0 --region "$AWS_REGION" # For Airflow UI
-    aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 9090 --cidr 0.0.0.0/0 --region "$AWS_REGION" # For Spark Master UI
+    "$AWS_CLI" ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr 0.0.0.0/0 --region "$AWS_REGION"
+    "$AWS_CLI" ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 8080 --cidr 0.0.0.0/0 --region "$AWS_REGION" # For Airflow UI
+    "$AWS_CLI" ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP_ID" --protocol tcp --port 9090 --cidr 0.0.0.0/0 --region "$AWS_REGION" # For Spark Master UI
     
     echo "Security Group created with ID: $SECURITY_GROUP_ID"
 else
@@ -70,22 +82,33 @@ EOF
 
 # --- 3. Launch EC2 Instance ---
 echo "Launching EC2 instance ($INSTANCE_TYPE) with a ${ROOT_VOLUME_SIZE}GiB root volume..."
-INSTANCE_ID=$(aws ec2 run-instances \
+RUN_INSTANCES_OUTPUT=$("$AWS_CLI" ec2 run-instances \
     --image-id "$AMI_ID" \
     --instance-type "$INSTANCE_TYPE" \
     --key-name "$KEY_NAME" \
     --security-group-ids "$SECURITY_GROUP_ID" \
     --user-data "$USER_DATA" \
     --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":${ROOT_VOLUME_SIZE},\"VolumeType\":\"gp3\"}}]" \
-    --output text --query 'Instances[0].InstanceId' --region "$AWS_REGION")
+    --output text --query 'Instances[0].InstanceId' --region "$AWS_REGION" 2>&1)
 
-echo "Instance created with ID: $INSTANCE_ID. Waiting for it to become available..."
+if echo "$RUN_INSTANCES_OUTPUT" | grep -q '^i-'; then
+    INSTANCE_ID="$RUN_INSTANCES_OUTPUT"
+    echo "Instance created with ID: $INSTANCE_ID. Waiting for it to become available..."
+else
+    echo "Failed to launch EC2 instance. Output was:"
+    echo "$RUN_INSTANCES_OUTPUT"
+    exit 1
+fi
 
 # Wait for the instance to be in the 'running' state
-aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region "$AWS_REGION"
+"$AWS_CLI" ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region "$AWS_REGION" || { echo "Instance did not reach running state"; exit 1; }
 
 # Get the public IP address of the instance
-PUBLIC_IP=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --output text --query 'Reservations[0].Instances[0].PublicIpAddress' --region "$AWS_REGION")
+PUBLIC_IP=$("$AWS_CLI" ec2 describe-instances --instance-ids "$INSTANCE_ID" --output text --query 'Reservations[0].Instances[0].PublicIpAddress' --region "$AWS_REGION")
+if [ -z "$PUBLIC_IP" ]; then
+    echo "Failed to retrieve public IP address for instance $INSTANCE_ID"
+    exit 1
+fi
 
 # --- 4. Display Final Information ---
 echo "------------------------------------------------------------------"
@@ -108,3 +131,4 @@ echo "   Airflow UI will be available at: http://$PUBLIC_IP:8080"
 echo "   Spark Master UI will be available at: http://$PUBLIC_IP:9090"
 echo "------------------------------------------------------------------"
 echo "Note: It may take a few minutes for the EC2 instance to boot and for services to start."
+
