@@ -20,21 +20,28 @@ SNOWFLAKE_TABLE = "ECOMMERCE_DB.ANALYTICS.CUSTOMER_360_PROFILES"
 # Define the output table for our transformation
 output_table = Table(name=SNOWFLAKE_TABLE, conn_id=SNOWFLAKE_CONN_ID)
 
+# Define the tables in our layered data model for analytics
+SNOWFLAKE_STG_TABLE = Table(name="STG_EVENTS", conn_id=SNOWFLAKE_CONN_ID)
+SNOWFLAKE_PRODUCTS_DIM_TABLE = Table(name="DIM_PRODUCTS", conn_id=SNOWFLAKE_CONN_ID)
+SNOWFLAKE_SESSIONS_FACT_TABLE = Table(name="FCT_USER_SESSIONS", conn_id=SNOWFLAKE_CONN_ID)
+SNOWFLAKE_USERS_DIM_TABLE = Table(name="DIM_USERS", conn_id=SNOWFLAKE_CONN_ID)
+
 @dag(
     start_date=pendulum.datetime(2025, 6, 21, tz="UTC"),
     schedule="0 1 * * *",
     catchup=False,
-    tags=["ecommerce", "sdk", "etl"],
+    tags=["ecommerce", "sdk", "etl", "analytics"],
 )
 def ecommerce_daily_etl_sdk():
-    # 1. READ (Extract)
-    raw_events_table = LoadFileOperator(
-        task_id="load_events_from_s3",
-        input_file=File(path=S3_INPUT_PATH, conn_id=S3_CONN_ID),
-        output_table=Table(conn_id=SNOWFLAKE_CONN_ID) # Let Astro create a temporary table
+    # 1. READ (Extract) - Load raw data from S3 into a staging table in Snowflake
+    load_raw_events = aql.load_file(
+        task_id="load_events_from_s3_to_staging",
+        input_file=File(path=S3_INPUT_PATH, conn_id=S3_CONN_ID, filetype="parquet"),
+        output_table=SNOWFLAKE_STG_TABLE,
+        use_native_support=True,
     )
 
-    # 2. TRANSFORM and 3. LOAD
+    # 2. TRANSFORM and 3. LOAD - Customer 360 Profiles
     @aql.transform()
     def transform_events(input_table):
         return f"""
@@ -53,9 +60,9 @@ def ecommerce_daily_etl_sdk():
         """
 
     # Execute the transform and return the result
-    transformed_table = transform_events(input_table=raw_events_table.output)
+    transformed_table = transform_events(input_table=load_raw_events.output)
 
     # Set dependencies
-    raw_events_table
+    load_raw_events >> transformed_table
 
 ecommerce_daily_etl_sdk()
