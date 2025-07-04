@@ -21,6 +21,61 @@ AIRFLOW_PASSWORD="airflow"
 AIRFLOW_EMAIL="admin@example.com"
 
 # ==============================================================================
+# Docker Installation and Setup
+# ==============================================================================
+echo "🐳 Setting up Docker..."
+
+# Check if Docker is installed
+if ! command -v docker &> /dev/null; then
+    echo "📦 Docker not found. Installing Docker..."
+    
+    # Update package list
+    sudo apt-get update
+    
+    # Install prerequisites
+    sudo apt-get install -y ca-certificates curl gnupg lsb-release
+    
+    # Add Docker's official GPG key
+    sudo mkdir -p /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    
+    # Add Docker repository
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Update package list again
+    sudo apt-get update
+    
+    # Install Docker
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    
+    echo "✅ Docker installed successfully"
+else
+    echo "✅ Docker is already installed"
+fi
+
+# Start Docker service
+echo "🔧 Starting Docker service..."
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# Add user to docker group if not already added
+if ! groups $USER | grep -q docker; then
+    echo "👤 Adding user to docker group..."
+    sudo usermod -aG docker $USER
+    echo "⚠️  Please log out and log back in for group changes to take effect, or run: newgrp docker"
+fi
+
+# Verify Docker is running
+echo "🔍 Verifying Docker is running..."
+if ! sudo docker info > /dev/null 2>&1; then
+    echo "❌ Error: Docker is not running properly"
+    echo "Please check Docker installation and try again"
+    exit 1
+fi
+
+echo "✅ Docker is running properly"
+
+# ==============================================================================
 # Verify Prerequisites
 # ==============================================================================
 echo "🔍 Checking prerequisites..."
@@ -29,13 +84,6 @@ echo "🔍 Checking prerequisites..."
 if [ ! -f "$AIRFLOW_PROJECT_DIR/docker-compose.yaml" ]; then
     echo "❌ Error: docker-compose.yaml not found in $AIRFLOW_PROJECT_DIR"
     echo "Please run this script from the airflow-project directory"
-    exit 1
-fi
-
-# Check if Docker is running
-if ! docker info > /dev/null 2>&1; then
-    echo "❌ Error: Docker is not running. Please start Docker first:"
-    echo "sudo systemctl start docker"
     exit 1
 fi
 
@@ -304,6 +352,12 @@ cat > "$AIRFLOW_PROJECT_DIR/start_airflow.sh" << 'START_SCRIPT'
 #!/bin/bash
 echo "🚀 Starting Airflow services..."
 
+# Ensure Docker is running
+if ! sudo systemctl is-active --quiet docker; then
+    echo "🐳 Starting Docker service..."
+    sudo systemctl start docker
+fi
+
 # Start Docker services
 cd "$(dirname "$0")"
 sudo docker compose up -d
@@ -354,11 +408,21 @@ cd "$(dirname "$0")"
 sudo docker compose logs -f
 LOGS_SCRIPT
 
+# Create status script
+cat > "$AIRFLOW_PROJECT_DIR/status_airflow.sh" << 'STATUS_SCRIPT'
+#!/bin/bash
+echo "📊 Checking Airflow services status..."
+
+cd "$(dirname "$0")"
+sudo docker compose ps
+STATUS_SCRIPT
+
 # Make scripts executable
 chmod +x "$AIRFLOW_PROJECT_DIR/start_airflow.sh"
 chmod +x "$AIRFLOW_PROJECT_DIR/stop_airflow.sh"
 chmod +x "$AIRFLOW_PROJECT_DIR/restart_airflow.sh"
 chmod +x "$AIRFLOW_PROJECT_DIR/view_logs.sh"
+chmod +x "$AIRFLOW_PROJECT_DIR/status_airflow.sh"
 
 echo "✅ Start/stop scripts created"
 
@@ -386,6 +450,7 @@ echo "🎉 Airflow Setup Complete!"
 echo "==============================================================================="
 echo ""
 echo "📋 What was configured:"
+echo "   ✅ Docker installation and configuration"
 echo "   ✅ Environment variables (airflow.env and .env files)"
 echo "   ✅ Airflow connections (AWS, Snowflake, S3) - pre-configured"
 echo "   ✅ Airflow variables (S3, Snowflake, Spark config)"
@@ -413,7 +478,8 @@ echo "   Start services: ./start_airflow.sh"
 echo "   Stop services:  ./stop_airflow.sh"
 echo "   Restart:        ./restart_airflow.sh"
 echo "   View logs:      ./view_logs.sh"
-echo "   Check status:   sudo docker compose ps"
+echo "   Check status:   ./status_airflow.sh"
+echo "   Check Docker:   sudo docker compose ps"
 echo ""
 echo "📚 Documentation:"
 echo "   - Airflow docs: https://airflow.apache.org/docs/"

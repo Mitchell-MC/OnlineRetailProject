@@ -16,12 +16,22 @@
             "name": "Python: Airflow DAG",
             "type": "python",
             "request": "launch",
-            "program": "/airflow-project/dags/ecommerce_daily_etl.py",
+            "program": "/airflow-project/dags/ecommerce_daily_sdk.py",
             "console": "integratedTerminal",
             "cwd": "/airflow-project",
             "env": {
-                "PYTHONPATH": "/airflow-project",
-                "AIRFLOW_HOME": "/airflow-project"
+                "PYTHONPATH": "/airflow-project"
+            }
+        },
+        {
+            "name": "Python: Kafka Producer",
+            "type": "python",
+            "request": "launch",
+            "program": "/producer.py",
+            "console": "integratedTerminal",
+            "cwd": "",
+            "env": {
+                "PYTHONPATH": ""
             }
         }
     ]
