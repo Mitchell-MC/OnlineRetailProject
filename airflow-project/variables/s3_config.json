@@ -1,0 +1,5 @@
+{
+    "s3_bucket_name": "${S3_BUCKET_NAME}",
+    "s3_data_path": "${S3_DATA_PATH}",
+    "s3_region": "us-east-1"
+}

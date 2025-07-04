@@ -1,8 +1,11 @@
+# Apache Airflow 2.9.2 (stable version)
+# (Do NOT specify apache-airflow here if using an Airflow Docker image)
+
 # Astro SDK with Snowflake (Snowpark) support
 astro-sdk-python[snowflake]>=1.5
 snowflake-snowpark-python>=1.8.0
 
-# Required Airflow providers
+# Required Airflow providers (compatible with 2.9.2)
 apache-airflow-providers-snowflake==5.5.1
 apache-airflow-providers-amazon==8.24.0
 apache-airflow-providers-postgres==5.7.1

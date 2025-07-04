@@ -1,0 +1,7 @@
+{
+    "snowflake_account": "${SNOWFLAKE_ACCOUNT}",
+    "snowflake_warehouse": "${SNOWFLAKE_WAREHOUSE}",
+    "snowflake_database": "${SNOWFLAKE_DATABASE}",
+    "snowflake_schema": "${SNOWFLAKE_SCHEMA}",
+    "snowflake_region": "us-east-1"
+}

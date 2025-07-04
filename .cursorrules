@@ -1,0 +1,52 @@
+# Online Retail Project - Cursor AI Assistant Rules
+
+## Project Overview
+This is an Online Retail Project that uses:
+- Apache Airflow for data orchestration
+- Apache Kafka for real-time streaming
+- Apache Spark for data processing
+- AWS services (EC2, S3, etc.)
+- Docker for containerization
+
+## Code Style Guidelines
+- Use Python 3.8+ syntax
+- Follow PEP 8 style guidelines
+- Use type hints where appropriate
+- Add docstrings to functions and classes
+- Use meaningful variable and function names
+
+## Architecture Patterns
+- Use dependency injection for services
+- Implement proper error handling and logging
+- Follow the principle of separation of concerns
+- Use configuration files for environment-specific settings
+
+## File Organization
+- Keep related functionality in the same directory
+- Use descriptive file names
+- Separate configuration from business logic
+- Maintain clear import hierarchies
+
+## Testing
+- Write unit tests for critical functions
+- Use pytest for testing framework
+- Mock external dependencies
+- Test both success and failure scenarios
+
+## Documentation
+- Update README files when adding new features
+- Document API endpoints and their parameters
+- Include setup and deployment instructions
+- Add inline comments for complex logic
+
+## Security
+- Never commit sensitive credentials
+- Use environment variables for secrets
+- Validate all user inputs
+- Follow AWS security best practices
+
+## Performance
+- Optimize database queries
+- Use appropriate data structures
+- Implement caching where beneficial
+- Monitor resource usage

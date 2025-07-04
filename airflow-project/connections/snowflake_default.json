@@ -1,0 +1,15 @@
+{
+    "conn_type": "snowflake",
+    "description": "Snowflake Default Connection",
+    "host": "${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com",
+    "schema": "${SNOWFLAKE_SCHEMA}",
+    "login": "${SNOWFLAKE_USER}",
+    "password": "${SNOWFLAKE_PASSWORD}",
+    "port": 443,
+    "extra": {
+        "account": "${SNOWFLAKE_ACCOUNT}",
+        "warehouse": "${SNOWFLAKE_WAREHOUSE}",
+        "database": "${SNOWFLAKE_DATABASE}",
+        "region": "us-east-1"
+    }
+}

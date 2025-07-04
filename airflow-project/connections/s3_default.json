@@ -1,0 +1,14 @@
+{
+    "conn_type": "s3",
+    "description": "S3 Default Connection",
+    "host": "",
+    "schema": "",
+    "login": "${AWS_ACCESS_KEY_ID}",
+    "password": "${AWS_SECRET_ACCESS_KEY}",
+    "port": null,
+    "extra": {
+        "aws_access_key_id": "${AWS_ACCESS_KEY_ID}",
+        "aws_secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
+        "region_name": "us-east-1"
+    }
+}

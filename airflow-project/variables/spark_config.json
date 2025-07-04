@@ -1,0 +1,6 @@
+{
+    "spark_master_url": "${SPARK_MASTER_URL}",
+    "spark_driver_memory": "${SPARK_DRIVER_MEMORY}",
+    "spark_executor_memory": "${SPARK_EXECUTOR_MEMORY}",
+    "spark_app_name": "EcommerceETL"
+}
