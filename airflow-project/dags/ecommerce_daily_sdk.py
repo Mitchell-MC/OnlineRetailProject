@@ -3,28 +3,21 @@
 import pendulum
 from airflow.decorators import dag
 from astro import sql as aql
-
-# Import Astro SDK functions and classes
 from astro.files import File
 from astro.sql import Table
-from astro.sql.operators.load_file import LoadFileOperator
 
-# Define connections and parameters using your specific paths
 S3_CONN_ID = "aws_default"
 SNOWFLAKE_CONN_ID = "snowflake_default"
-# --- UPDATED S3 Path for partitioned structure ---
-S3_INPUT_PATH = "s3://kafka-cust-transactions/raw/user_events/event_type=*/**/*.parquet"
-# --- UPDATED Snowflake Database, Schema, and Table ---
-SNOWFLAKE_TABLE = "ECOMMERCE_DB.ANALYTICS.CUSTOMER_360_PROFILES"
 
-# Define the output table for our transformation
-output_table = Table(name=SNOWFLAKE_TABLE, conn_id=SNOWFLAKE_CONN_ID)
+# S3 paths for each event type
+S3_CART_PATH = "s3://kafka-cust-transactions/raw/user_events/event_type=cart/"
+S3_PURCHASE_PATH = "s3://kafka-cust-transactions/raw/user_events/event_type=purchase/"
+S3_VIEW_PATH = "s3://kafka-cust-transactions/raw/user_events/event_type=view/"
 
-# Define the tables in our layered data model for analytics
-SNOWFLAKE_STG_TABLE = Table(name="STG_EVENTS", conn_id=SNOWFLAKE_CONN_ID)
-SNOWFLAKE_PRODUCTS_DIM_TABLE = Table(name="DIM_PRODUCTS", conn_id=SNOWFLAKE_CONN_ID)
-SNOWFLAKE_SESSIONS_FACT_TABLE = Table(name="FCT_USER_SESSIONS", conn_id=SNOWFLAKE_CONN_ID)
-SNOWFLAKE_USERS_DIM_TABLE = Table(name="DIM_USERS", conn_id=SNOWFLAKE_CONN_ID)
+SNOWFLAKE_STG_CART = Table(name="STG_EVENTS_CART", conn_id=SNOWFLAKE_CONN_ID)
+SNOWFLAKE_STG_PURCHASE = Table(name="STG_EVENTS_PURCHASE", conn_id=SNOWFLAKE_CONN_ID)
+SNOWFLAKE_STG_VIEW = Table(name="STG_EVENTS_VIEW", conn_id=SNOWFLAKE_CONN_ID)
+SNOWFLAKE_COMBINED_STG = Table(name="STG_EVENTS_COMBINED", conn_id=SNOWFLAKE_CONN_ID)
 
 @dag(
     start_date=pendulum.datetime(2025, 6, 21, tz="UTC"),
@@ -33,15 +26,40 @@ SNOWFLAKE_USERS_DIM_TABLE = Table(name="DIM_USERS", conn_id=SNOWFLAKE_CONN_ID)
     tags=["ecommerce", "sdk", "etl", "analytics"],
 )
 def ecommerce_daily_etl_sdk():
-    # 1. READ (Extract) - Load raw data from S3 into a staging table in Snowflake
-    load_raw_events = aql.load_file(
-        task_id="load_events_from_s3_to_staging",
-        input_file=File(path=S3_INPUT_PATH, conn_id=S3_CONN_ID, filetype="parquet"),
-        output_table=SNOWFLAKE_STG_TABLE,
+    # Load each event type from S3 into its own staging table
+    load_cart = aql.load_file(
+        task_id="load_cart_events",
+        input_file=File(path=S3_CART_PATH, conn_id=S3_CONN_ID, filetype="parquet"),
+        output_table=SNOWFLAKE_STG_CART,
+        use_native_support=True,
+    )
+    load_purchase = aql.load_file(
+        task_id="load_purchase_events",
+        input_file=File(path=S3_PURCHASE_PATH, conn_id=S3_CONN_ID, filetype="parquet"),
+        output_table=SNOWFLAKE_STG_PURCHASE,
+        use_native_support=True,
+    )
+    load_view = aql.load_file(
+        task_id="load_view_events",
+        input_file=File(path=S3_VIEW_PATH, conn_id=S3_CONN_ID, filetype="parquet"),
+        output_table=SNOWFLAKE_STG_VIEW,
         use_native_support=True,
     )
 
-    # 2. TRANSFORM and 3. LOAD - Customer 360 Profiles
+    # Combine all event types into a single staging table
+    @aql.transform()
+    def combine_events(cart, purchase, view):
+        return """
+        SELECT * FROM {{ cart }}
+        UNION ALL
+        SELECT * FROM {{ purchase }}
+        UNION ALL
+        SELECT * FROM {{ view }}
+        """
+
+    combined_events = combine_events(cart=load_cart, purchase=load_purchase, view=load_view, output_table=SNOWFLAKE_COMBINED_STG)
+
+    # Downstream transformation (example: customer 360)
     @aql.transform()
     def transform_events(input_table):
         return f"""
@@ -59,10 +77,9 @@ def ecommerce_daily_etl_sdk():
         GROUP BY user_id
         """
 
-    # Execute the transform and return the result
-    transformed_table = transform_events(input_table=load_raw_events.output)
+    transformed_table = transform_events(input_table=combined_events)
 
     # Set dependencies
-    load_raw_events >> transformed_table
+    load_cart >> load_purchase >> load_view >> combined_events >> transformed_table
 
 ecommerce_daily_etl_sdk()

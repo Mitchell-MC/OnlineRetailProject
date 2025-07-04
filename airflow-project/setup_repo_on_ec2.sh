@@ -59,6 +59,7 @@ apt-get update -y
 apt-get install -y ca-certificates curl git
 
 # Set up Docker's official repository
+echo "Setting up Docker repository..."
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 chmod a+r /etc/apt/keyrings/docker.asc
@@ -66,17 +67,211 @@ echo "deb [arch=\\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docke
 apt-get update -y
 
 # Install Docker Engine, CLI, Containerd, and Compose plugin
+echo "Installing Docker components..."
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Start Docker and enable it to start on boot
+echo "Starting and enabling Docker..."
 systemctl start docker
 systemctl enable docker
+
+# Add ubuntu user to docker group
 usermod -a -G docker ubuntu
+
+# Configure Docker daemon for better performance and security
+echo "Configuring Docker daemon..."
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json << 'DOCKER_DAEMON'
+{
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+    },
+    "storage-driver": "overlay2",
+    "default-ulimits": {
+        "nofile": {
+            "Hard": 64000,
+            "Name": "nofile",
+            "Soft": 64000
+        }
+    }
+}
+DOCKER_DAEMON
+
+# Restart Docker to apply configuration
+systemctl restart docker
+
+# Verify Docker installation
+echo "Verifying Docker installation..."
+docker --version
+docker compose version
+
+# Set up Docker Compose configuration
+echo "Setting up Docker Compose configuration..."
+mkdir -p /home/ubuntu/.docker
+cat > /home/ubuntu/.docker/config.json << 'DOCKER_CONFIG'
+{
+    "psFormat": "table {{.ID}}\\t{{.Image}}\\t{{.Status}}\\t{{.Names}}",
+    "imagesFormat": "table {{.ID}}\\t{{.Repository}}\\t{{.Tag}}\\t{{.Size}}"
+}
+DOCKER_CONFIG
+
+# Set proper ownership for Docker configuration
+chown -R ubuntu:ubuntu /home/ubuntu/.docker
 
 # Clone the project repository
 cd /home/ubuntu
 git clone "$PROJECT_REPO_URL"
 chown -R ubuntu:ubuntu "$PROJECT_DIR_NAME"
+
+# Create Docker-specific setup script for Airflow
+echo "Creating Docker setup script for Airflow..."
+cat > /home/ubuntu/$PROJECT_DIR_NAME/setup_docker_airflow.sh << 'DOCKER_SETUP'
+#!/bin/bash
+set -e
+
+echo "🐳 Setting up Docker environment for Airflow..."
+
+# Navigate to the airflow-project directory
+cd /home/ubuntu/OnlineRetailProject/airflow-project
+
+# Ensure Docker is running
+if ! systemctl is-active --quiet docker; then
+    echo "Starting Docker..."
+    sudo systemctl start docker
+fi
+
+# Verify Docker permissions for ubuntu user
+if ! groups ubuntu | grep -q docker; then
+    echo "Adding ubuntu user to docker group..."
+    sudo usermod -a -G docker ubuntu
+    echo "Please log out and log back in for group changes to take effect, or run: newgrp docker"
+fi
+
+# Create necessary directories with proper permissions
+echo "Creating Airflow directories..."
+mkdir -p dags logs plugins jobs
+sudo chown -R 50000:0 dags logs plugins jobs
+
+# Set up environment files if they don't exist
+if [ ! -f "airflow.env" ]; then
+    echo "Creating airflow.env file..."
+    cat > airflow.env << 'AIRFLOW_ENV'
+# Core Airflow Configuration
+AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+AIRFLOW__CORE__EXECUTOR=LocalExecutor
+AIRFLOW__CORE__FERNET_KEY=OnfNZiO4pfvIuVIt4EMMGx_bJasFN53hlZMBKYi-PgU=
+AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+AIRFLOW__CORE__LOAD_EXAMPLES=False
+
+# Java Configuration (required for Spark)
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+# Astro SDK Connection for Snowflake
+AIRFLOW_CONN_SNOWFLAKE_DEFAULT='{
+    "conn_type": "snowflake",
+    "login": "MITCHELLMCC",
+    "password": "jme9EPKxPwm8ewX",
+    "schema": "ANALYTICS",
+    "extra": {
+        "account": "KLRPPBG-NEC57960",
+        "database": "ECOMMERCE_DB",
+        "warehouse": "COMPUTE_WH"
+    }
+}'
+
+# AWS Connection (for S3 access)
+AIRFLOW_CONN_AWS_DEFAULT='{
+    "conn_type": "aws",
+    "login": "AKIAYVHNVD2T6SVKVBFZ",
+    "password": "vjPrHEPgrjuUIYX1BYP0kL+uTTIKjP8P+R80xBF",
+    "extra": {
+        "region_name": "us-east-1"
+    }
+}'
+
+# Set the user and group for files created in mounted volumes
+AIRFLOW_UID=50000
+AIRFLOW_GID=0
+AIRFLOW_ENV
+fi
+
+# Create start/stop scripts
+echo "Creating Airflow management scripts..."
+
+# Start script
+cat > start_airflow.sh << 'START_SCRIPT'
+#!/bin/bash
+echo "🚀 Starting Airflow services..."
+
+cd "$(dirname "$0")"
+sudo docker compose up -d
+
+echo "⏳ Waiting for services to be ready..."
+sleep 30
+
+if sudo docker compose ps | grep -q "Up"; then
+    echo "✅ Airflow services started successfully!"
+    echo "🌐 Airflow UI: http://localhost:8080"
+    echo "📊 Spark Master UI: http://localhost:9090"
+    echo "🔑 Default credentials: airflow/airflow"
+else
+    echo "❌ Some services failed to start. Check logs with: sudo docker compose logs"
+fi
+START_SCRIPT
+
+# Stop script
+cat > stop_airflow.sh << 'STOP_SCRIPT'
+#!/bin/bash
+echo "🛑 Stopping Airflow services..."
+
+cd "$(dirname "$0")"
+sudo docker compose down
+
+echo "✅ Airflow services stopped"
+STOP_SCRIPT
+
+# Restart script
+cat > restart_airflow.sh << 'RESTART_SCRIPT'
+#!/bin/bash
+echo "🔄 Restarting Airflow services..."
+
+cd "$(dirname "$0")"
+./stop_airflow.sh
+sleep 5
+./start_airflow.sh
+RESTART_SCRIPT
+
+# Logs script
+cat > view_logs.sh << 'LOGS_SCRIPT'
+#!/bin/bash
+echo "📋 Viewing Airflow logs..."
+
+cd "$(dirname "$0")"
+sudo docker compose logs -f
+LOGS_SCRIPT
+
+# Make scripts executable
+chmod +x start_airflow.sh stop_airflow.sh restart_airflow.sh view_logs.sh
+
+echo "✅ Docker setup complete!"
+echo ""
+echo "🚀 To start Airflow, run:"
+echo "   cd /home/ubuntu/OnlineRetailProject/airflow-project"
+echo "   ./start_airflow.sh"
+echo ""
+echo "📋 Available commands:"
+echo "   ./start_airflow.sh   - Start all services"
+echo "   ./stop_airflow.sh    - Stop all services"
+echo "   ./restart_airflow.sh - Restart all services"
+echo "   ./view_logs.sh       - View service logs"
+echo "   sudo docker compose ps - Check service status"
+DOCKER_SETUP
+
+# Make the Docker setup script executable
+chmod +x /home/ubuntu/$PROJECT_DIR_NAME/setup_docker_airflow.sh
+chown ubuntu:ubuntu /home/ubuntu/$PROJECT_DIR_NAME/setup_docker_airflow.sh
 
 # Set up Cursor development environment
 echo "Setting up Cursor development environment..."
@@ -420,13 +615,11 @@ echo "   SSH Command: ssh -i \"$KEY_NAME.pem\" ubuntu@$PUBLIC_IP"
 echo
 echo "   IMPORTANT NEXT STEPS:"
 echo "   1. From your local machine, navigate to the directory containing your key:"
-echo "      cd path/to/OnlineRetailProject/airlfow-project"
+echo "      cd path/to/OnlineRetailProject/airflow-project"
 echo "   2. SSH into your new EC2 instance using the command printed above."
 echo "   3. Navigate to the project folder on the server: cd ~/$PROJECT_DIR_NAME"
-echo "   4. Create the environment file: nano .env"
-echo "   5. Copy the contents from your local 'env.example' file and paste them into nano."
-echo "   6. Fill in your secret credentials in the .env file on the server and save it."
-echo "   7. Run Airflow: docker compose up -d"
+echo "   4. Run the Docker setup script: ./setup_docker_airflow.sh"
+echo "   5. Start Airflow: cd airflow-project && ./start_airflow.sh"
 echo
 echo "   Airflow UI will be available at: http://$PUBLIC_IP:8080"
 echo "   Spark Master UI will be available at: http://$PUBLIC_IP:9090"

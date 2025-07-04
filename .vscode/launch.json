@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "",
+            "console": "integratedTerminal",
+            "cwd": "",
+            "env": {
+                "PYTHONPATH": ""
+            }
+        },
+        {
+            "name": "Python: Airflow DAG",
+            "type": "python",
+            "request": "launch",
+            "program": "/airflow-project/dags/ecommerce_daily_etl.py",
+            "console": "integratedTerminal",
+            "cwd": "/airflow-project",
+            "env": {
+                "PYTHONPATH": "/airflow-project",
+                "AIRFLOW_HOME": "/airflow-project"
+            }
+        }
+    ]
+}

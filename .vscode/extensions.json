@@ -1,0 +1,17 @@
+{
+    "recommendations": [
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "ms-python.pylint",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.vscode-json",
+        "redhat.vscode-yaml",
+        "ms-vscode.vscode-git",
+        "ms-vscode.vscode-git-graph",
+        "eamodio.gitlens",
+        "ms-vscode.vscode-kubernetes-tools",
+        "ms-vscode.vscode-helm",
+        "ms-vscode.vscode-markdown",
+        "ms-vscode.vscode-jupyter"
+    ]
+}

@@ -1,9 +1,10 @@
 #!/bin/bash
 
 # ==============================================================================
-# Airflow Installation Script for Ubuntu EC2 Instance
+# Airflow Installation Script for Ubuntu EC2 Instance (Airflow 2.9.2)
 # ==============================================================================
-# This script installs and configures Apache Airflow on your Ubuntu EC2 instance
+# This script installs and configures Apache Airflow 2.9.2 on your Ubuntu EC2 instance
+# Airflow 2.9.2 is a stable, production-ready version
 # Run this script on your EC2 instance after SSH'ing into it
 
 set -e  # Exit on any error
@@ -49,8 +50,14 @@ sudo apt-get install -y \
 # Install Docker and Docker Compose
 # ==============================================================================
 echo "🐳 Installing Docker..."
+
+# Remove any old/broken Docker repo files
+sudo rm -f /etc/apt/sources.list.d/docker.list
+
+# Add Docker's official GPG key
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 
+# Add Docker repository (correct format)
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 sudo apt-get update -y
@@ -89,8 +96,12 @@ source venv/bin/activate
 pip install --upgrade pip
 
 # Install Airflow and dependencies
-echo "📚 Installing Airflow and dependencies..."
+echo "📚 Installing Airflow 2.9.2 and dependencies..."
 pip install -r requirements.txt
+
+# Verify Airflow version
+echo "🔍 Verifying Airflow installation..."
+airflow version
 
 # ==============================================================================
 # Configure Airflow
@@ -239,8 +250,11 @@ cat > "$PROJECT_DIR/start_airflow.sh" << 'EOF'
 # Start Airflow services
 echo "Starting Airflow services..."
 
+# Change to the airflow-project directory
+cd /home/ubuntu/OnlineRetailProject/airflow-project
+
 # Activate virtual environment
-source /home/ubuntu/OnlineRetailProject/airflow-project/venv/bin/activate
+source venv/bin/activate
 
 # Set environment variables
 export AIRFLOW_HOME=/home/ubuntu/airflow
@@ -289,7 +303,7 @@ PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/n
 
 echo ""
 echo "🎉 ========================================="
-echo "   AIRFLOW INSTALLATION COMPLETED!"
+echo "   AIRFLOW 2.9.2 INSTALLATION COMPLETED!"
 echo "========================================="
 echo ""
 echo "📋 Next Steps:"

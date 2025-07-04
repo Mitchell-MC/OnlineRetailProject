@@ -1,0 +1,26 @@
+===============================================================================
+🎉 EC2 Instance Setup Complete!
+===============================================================================
+
+Your EC2 instance has been successfully created with the following setup:
+
+✅ Ubuntu 22.04 LTS
+✅ Docker and Docker Compose installed
+✅ Project repository cloned
+✅ Cursor development environment configured
+✅ Security group configured for Airflow (port 8080) and Spark (port 9090)
+
+NEXT STEPS:
+1. SSH into your instance: ssh -i "3A_Pipe_EC2.pem" ubuntu@<PUBLIC_IP>
+2. Navigate to project: cd ~/OnlineRetailProject/airflow-project
+3. Run the Airflow setup script: ./setup_airflow.sh
+4. Configure your environment variables
+5. Start Airflow: docker compose up -d
+
+USEFUL COMMANDS:
+- Check Docker: docker --version
+- Check project: ls -la ~/OnlineRetailProject
+- View logs: docker compose logs -f
+- Stop services: docker compose down
+
+===============================================================================
