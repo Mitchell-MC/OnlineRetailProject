@@ -19,3 +19,6 @@ cryptography==41.0.7
 redis>=4.5.2,<5.0.0
 celery==5.3.4
 snowflake-connector-python==3.6.0
+astro-sdk-python[snowflake,postgres]==1.8.1
+astronomer-cosmos==1.10.1
+pydantic==2.11.7

@@ -201,6 +201,7 @@ cleanup_docker_repo() {
     
     # Remove any old/broken Docker repo files
     sudo rm -f /etc/apt/sources.list.d/docker.list
+    sudo rm -f /etc/apt/sources.list.d/docker-ce.list
     
     # Check if there are any malformed Docker entries in sources.list
     if grep -q "docker.com/linux/ubuntu.*\\" /etc/apt/sources.list; then
@@ -208,20 +209,42 @@ cleanup_docker_repo() {
         sudo sed -i '/docker.com\/linux\/ubuntu.*\\/d' /etc/apt/sources.list
     fi
     
+    # Remove any malformed entries with backslashes
+    if grep -q "docker.com.*\\\\" /etc/apt/sources.list; then
+        echo "⚠️  Found malformed Docker entries with backslashes, removing..."
+        sudo sed -i '/docker.com.*\\\\/d' /etc/apt/sources.list
+    fi
+    
     # Remove any Docker-related GPG keys that might be corrupted
     sudo rm -f /usr/share/keyrings/docker-archive-keyring.gpg
     sudo rm -f /etc/apt/trusted.gpg.d/docker.gpg
+    sudo rm -f /etc/apt/keyrings/docker.asc
+    sudo rm -f /etc/apt/keyrings/docker.gpg
+    sudo rm -f /usr/share/keyrings/docker.gpg
+    
+    # Clean up any corrupted Docker keyring directories
+    sudo rm -rf /etc/apt/keyrings/docker*
     
     echo "✅ Docker repository cleanup completed"
 }
 
+# Immediately clean up any existing Docker repository issues
 cleanup_docker_repo
+
+# Verify apt update works after cleanup
+echo "🔍 Verifying package manager is working after cleanup..."
+if ! sudo apt-get update -y; then
+    echo "❌ Package manager still has issues after cleanup. Exiting."
+    exit 1
+fi
+echo "✅ Package manager verified working"
 
 # Add Docker's official GPG key
 echo "🔑 Adding Docker's official GPG key..."
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 
 # Add Docker repository (correct format)
+echo "📦 Adding Docker repository..."
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 # Update package lists for Docker with retry logic
