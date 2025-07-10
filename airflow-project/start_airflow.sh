@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
     echo "❌ Error: Docker is not installed"
-    echo "Please run ./setup_airflow.sh first to install Docker"
+    echo "Please run ./setup_ubuntu_airflow.sh first to install Docker"
     exit 1
 fi
 
@@ -59,10 +59,10 @@ if sudo docker compose ps | grep -q "Up"; then
     echo "🔑 Default credentials: airflow/airflow"
     echo ""
     echo "📊 Check service status with: ./status_airflow.sh"
-    echo "📋 View logs with: ./view_logs.sh"
+    echo "📋 View logs with: docker compose logs -f"
 else
     echo "❌ Some services failed to start."
-    echo "📋 Check logs with: ./view_logs.sh"
-    echo "🔍 Check status with: ./status_airflow.sh"
+    echo "📋 Check logs with: docker compose logs -f"
+    echo "🔍 Check status with: docker compose ps"
     exit 1
 fi
