@@ -1,0 +1,15 @@
+Host ec2-18-208-211-224.compute-1.amazonaws.com
+    HostName ec2-18-208-211-224.compute-1.amazonaws.com
+    User ubuntu
+    IdentityFile C:\Users\mccal\Downloads\OnlineRetailProject\airflow-project\3A_Pipe_EC2.pem
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+
+# Alternative: Use wildcard for all EC2 instances
+Host ec2-*.compute-1.amazonaws.com
+    User ubuntu
+    IdentityFile C:\Users\mccal\Downloads\OnlineRetailProject\airflow-project\3A_Pipe_EC2.pem
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null 

@@ -107,6 +107,7 @@ echo "Verifying Docker installation..."
 docker --version
 docker compose version
 
+<<<<<<< HEAD
 # Set up Docker Compose configuration
 echo "Setting up Docker Compose configuration..."
 mkdir -p /home/ubuntu/.docker
@@ -120,6 +121,7 @@ DOCKER_CONFIG
 # Set proper ownership for Docker configuration
 chown -R ubuntu:ubuntu /home/ubuntu/.docker
 
+>>>>>>> 6bb8f7ad13890610a9e5bbcd9e58311f693903c2
 # Clone the project repository
 cd /home/ubuntu
 git clone "$PROJECT_REPO_URL"
@@ -152,6 +154,7 @@ fi
 # Create necessary directories with proper permissions
 echo "Creating Airflow directories..."
 mkdir -p dags logs plugins jobs
+<<<<<<< HEAD
 sudo chown -R 50000:0 dags logs plugins jobs
 
 # Set up environment files if they don't exist
@@ -573,6 +576,9 @@ GITIGNORE
 fi
 
 chown ubuntu:ubuntu /home/ubuntu/$PROJECT_DIR_NAME/.gitignore
+
+echo "✅ EC2 setup completed successfully!"
+echo "🚀 You can now SSH into the instance and start Airflow"
 EOF
 )
 
@@ -606,17 +612,24 @@ if [ -z "$PUBLIC_IP" ]; then
     exit 1
 fi
 
+# Convert IP to AWS DNS format (replace dots with dashes)
+AWS_DNS_NAME="ec2-$(echo $PUBLIC_IP | tr '.' '-').$AWS_REGION.compute.amazonaws.com"
 # --- 4. Display Final Information ---
 echo "------------------------------------------------------------------"
 echo "✅ EC2 Instance is now running!"
 echo
+echo "   Instance ID: $INSTANCE_ID"
 echo "   Public IP Address: $PUBLIC_IP"
-echo "   SSH Command: ssh -i \"$KEY_NAME.pem\" ubuntu@$PUBLIC_IP"
+echo "   AWS DNS Name: $AWS_DNS_NAME"
+echo "   SSH Command (Direct IP): ssh -i \"$KEY_NAME.pem\" ubuntu@$PUBLIC_IP"
+echo "   SSH Command (AWS URL): ssh -i \"$KEY_NAME.pem\" ubuntu@$AWS_DNS_NAME"
 echo
 echo "   IMPORTANT NEXT STEPS:"
 echo "   1. From your local machine, navigate to the directory containing your key:"
 echo "      cd path/to/OnlineRetailProject/airflow-project"
-echo "   2. SSH into your new EC2 instance using the command printed above."
+echo "   2. SSH into your new EC2 instance using one of the commands printed above:"
+echo "      - Direct IP: ssh -i \"$KEY_NAME.pem\" ubuntu@$PUBLIC_IP"
+echo "      - AWS URL: ssh -i \"$KEY_NAME.pem\" ubuntu@$AWS_DNS_NAME"
 echo "   3. Navigate to the project folder on the server: cd ~/$PROJECT_DIR_NAME"
 echo "   4. Run the Docker setup script: ./setup_docker_airflow.sh"
 echo "   5. Start Airflow: cd airflow-project && ./start_airflow.sh"
@@ -625,4 +638,3 @@ echo "   Airflow UI will be available at: http://$PUBLIC_IP:8080"
 echo "   Spark Master UI will be available at: http://$PUBLIC_IP:9090"
 echo "------------------------------------------------------------------"
 echo "Note: It may take a few minutes for the EC2 instance to boot and for services to start."
-
