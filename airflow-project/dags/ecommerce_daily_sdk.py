@@ -267,11 +267,35 @@ def ecommerce_daily_etl_sdk():
     @aql.transform(conn_id=SNOWFLAKE_CONN_ID)
     def combine_events():
         return """
-        SELECT * FROM ANALYTICS.STG_EVENTS_CART
+        SELECT 
+            CAST(user_id AS STRING) AS user_id,
+            CAST(event_time AS TIMESTAMP) AS event_time,
+            CAST(event_type AS STRING) AS event_type,
+            CAST(product_id AS STRING) AS product_id,
+            CAST(price AS DOUBLE) AS price,
+            CAST(brand AS STRING) AS brand,
+            CAST(category_code AS STRING) AS category_code
+        FROM tmp_astro.STG_EVENTS_CART
         UNION ALL
-        SELECT * FROM ANALYTICS.STG_EVENTS_PURCHASE
+        SELECT 
+            CAST(user_id AS STRING),
+            CAST(event_time AS TIMESTAMP),
+            CAST(event_type AS STRING),
+            CAST(product_id AS STRING),
+            CAST(price AS DOUBLE),
+            CAST(brand AS STRING),
+            CAST(category_code AS STRING)
+        FROM tmp_astro.STG_EVENTS_PURCHASE
         UNION ALL
-        SELECT * FROM ANALYTICS.STG_EVENTS_VIEW
+        SELECT 
+            CAST(user_id AS STRING),
+            CAST(event_time AS TIMESTAMP),
+            CAST(event_type AS STRING),
+            CAST(product_id AS STRING),
+            CAST(price AS DOUBLE),
+            CAST(brand AS STRING),
+            CAST(category_code AS STRING)
+        FROM tmp_astro.STG_EVENTS_VIEW
         """
 
     combined_events = combine_events(output_table=SNOWFLAKE_COMBINED_STG)
@@ -288,13 +312,13 @@ def ecommerce_daily_etl_sdk():
                 THEN category_code END) as MOST_VIEWED_CATEGORY,
             COUNT(CASE WHEN event_type = 'purchase' THEN 1 END) as TOTAL_PURCHASES,
             SUM(CASE WHEN event_type = 'purchase' THEN CAST(price AS DOUBLE) ELSE 0 END) as TOTAL_SPEND,
-            MAX(event_time) as LAST_SEEN_DATE
+            MAX(CAST(event_time AS TIMESTAMP)) as LAST_SEEN_DATE
         FROM tmp_astro.STG_EVENTS_COMBINED
         WHERE user_id IS NOT NULL
         GROUP BY user_id
         """
 
-    transformed_table = transform_events()
+    transformed_table = transform_events(output_table=Table(name="CUSTOMER_360_PROFILE", conn_id=SNOWFLAKE_CONN_ID))
 
     # Set dependencies
     cart_data >> purchase_data >> view_data >> combined_events >> transformed_table
