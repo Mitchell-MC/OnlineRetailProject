@@ -11,11 +11,11 @@ fastparquet>=2024.2.0
 # Required Airflow providers (compatible with 2.9.2)
 apache-airflow-providers-snowflake==5.5.1
 apache-airflow-providers-amazon==8.24.0
+apache-airflow-providers-docker==3.9.0
 apache-airflow-providers-postgres==5.7.1
 apache-airflow-providers-redis==3.0.0
 apache-airflow-providers-celery==3.4.0
 apache-airflow-providers-apache-spark==4.3.0
-apache-airflow-providers-docker==3.9.0
 apache-airflow-providers-http==4.7.0
 apache-airflow-providers-ssh==3.10.0
 apache-airflow-providers-hashicorp==3.4.0
@@ -34,3 +34,4 @@ cryptography==41.0.7
 snowflake-connector-python==3.6.0
 astronomer-cosmos==1.10.1
 pydantic==2.11.7
+pendulum>=2.1.2

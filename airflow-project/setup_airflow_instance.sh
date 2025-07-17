@@ -20,6 +20,392 @@ AIRFLOW_USER="airflow"
 AIRFLOW_PASSWORD="airflow"
 AIRFLOW_EMAIL="admin@example.com"
 
+# Auto-detect environment variables
+AUTO_DETECT_CREDENTIALS=true
+CREATE_DEMO_CONNECTIONS=true
+VALIDATE_DAGS=true
+INSTALL_ADDITIONAL_PROVIDERS=true
+
+# ==============================================================================
+# Function to auto-detect and create demo connections
+# ==============================================================================
+create_demo_connections() {
+    echo "🔗 Creating demo connections for testing..."
+    
+    # Create a demo Snowflake connection (for testing)
+    airflow connections add 'snowflake_default' \
+        --conn-type 'snowflake' \
+        --conn-host "demo-account.snowflakecomputing.com" \
+        --conn-login "demo_user" \
+        --conn-password "demo_password" \
+        --conn-schema "DEMO_SCHEMA" \
+        --conn-port 443 \
+        --conn-extra "{\"account\": \"demo-account\", \"warehouse\": \"DEMO_WAREHOUSE\", \"database\": \"DEMO_DB\", \"region\": \"us-east-1\"}" 2>/dev/null || echo "⚠️  Snowflake connection already exists"
+    
+    # Create a demo S3 connection (for testing)
+    airflow connections add 's3_default' \
+        --conn-type 'aws' \
+        --conn-login "demo_access_key" \
+        --conn-password "demo_secret_key" \
+        --conn-extra "{\"aws_access_key_id\": \"demo_access_key\", \"aws_secret_access_key\": \"demo_secret_key\", \"region_name\": \"us-east-1\"}" 2>/dev/null || echo "⚠️  S3 connection already exists"
+    
+    # Create AWS default connection
+    airflow connections add 'aws_default' \
+        --conn-type 'aws' \
+        --conn-extra "{\"region_name\": \"us-east-1\", \"aws_access_key_id\": \"demo_access_key\", \"aws_secret_access_key\": \"demo_secret_key\"}" 2>/dev/null || echo "⚠️  AWS connection already exists"
+    
+    echo "✅ Demo connections created successfully!"
+}
+
+# ==============================================================================
+# Function to validate DAGs and install missing dependencies
+# ==============================================================================
+validate_and_fix_dags() {
+    echo "🔍 Validating DAGs and dependencies..."
+    
+    # Check for missing dependencies
+    missing_deps=()
+    
+    # Check if astro-sdk-python is installed
+    if ! python -c "import astro" 2>/dev/null; then
+        missing_deps+=("astro-sdk-python")
+    fi
+    
+    # Check if boto3 is installed
+    if ! python -c "import boto3" 2>/dev/null; then
+        missing_deps+=("boto3")
+    fi
+    
+    # Check if snowflake-connector-python is installed
+    if ! python -c "import snowflake.connector" 2>/dev/null; then
+        missing_deps+=("snowflake-connector-python")
+    fi
+    
+    # Install missing dependencies
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        echo "📦 Installing missing dependencies: ${missing_deps[*]}"
+        pip install "${missing_deps[@]}"
+    fi
+    
+    # Check for duplicate DAG IDs
+    echo "🔍 Checking for duplicate DAG IDs..."
+    cd "$PROJECT_DIR/airflow-project/dags"
+    
+    # Find duplicate DAG IDs
+    dag_ids=$(grep -r "dag_id.*=" . --include="*.py" | grep -v "__pycache__" | sed "s/.*dag_id.*=.*['\"]\([^'\"]*\)['\"].*/\1/" | sort | uniq -d)
+    
+    if [ -n "$dag_ids" ]; then
+        echo "⚠️  Found duplicate DAG IDs: $dag_ids"
+        echo "🧹 Cleaning up duplicate DAG files..."
+        
+        # Remove sample_dag.py if it exists (common duplicate)
+        if [ -f "sample_dag.py" ]; then
+            rm -f "sample_dag.py"
+            echo "✅ Removed duplicate sample_dag.py"
+        fi
+    fi
+    
+    # Test DAG imports
+    echo "🧪 Testing DAG imports..."
+    airflow dags list-import-errors
+    
+    echo "✅ DAG validation completed"
+}
+
+# ==============================================================================
+# Function to auto-configure Airflow settings
+# ==============================================================================
+auto_configure_airflow() {
+    echo "⚙️  Auto-configuring Airflow settings..."
+    
+    # Create airflow.cfg if it doesn't exist
+    if [ ! -f "$AIRFLOW_HOME/airflow.cfg" ]; then
+        airflow version
+    fi
+    
+    # Update airflow.cfg with optimized settings
+    cat > "$AIRFLOW_HOME/airflow.cfg" << 'EOF'
+[core]
+dags_folder = /home/ubuntu/OnlineRetailProject/airflow-project/dags
+base_log_folder = /home/ubuntu/OnlineRetailProject/airflow-project/logs
+executor = SequentialExecutor
+sql_alchemy_conn = sqlite:////home/ubuntu/airflow/airflow.db
+load_examples = False
+dag_file_processor_timeout = 600
+dagbag_import_timeout = 600
+dagbag_import_error_traceback_depth = 2
+
+[database]
+sql_alchemy_conn = sqlite:////home/ubuntu/airflow/airflow.db
+
+[webserver]
+web_server_host = 0.0.0.0
+web_server_port = 8080
+secret_key = your-secret-key-here
+workers = 4
+worker_timeout = 120
+worker_refresh_batch_size = 1
+worker_refresh_interval = 30
+
+[scheduler]
+job_heartbeat_sec = 5
+scheduler_heartbeat_sec = 5
+run_duration = -1
+num_runs = -1
+processor_poll_interval = 1
+min_file_process_interval = 30
+dag_dir_list_interval = 300
+print_stats_interval = 30
+pool_metrics_interval = 5.0
+scheduler_health_check_threshold = 30
+parsing_processes = 2
+scheduler_zombie_task_threshold = 300
+catchup_by_default = True
+dagbag_import_timeout = 600
+
+[celery]
+worker_prefetch_multiplier = 1
+worker_enable_remote_task_prefetch = True
+
+[logging]
+base_log_folder = /home/ubuntu/OnlineRetailProject/airflow-project/logs
+dag_processor_manager_log_location = /home/ubuntu/OnlineRetailProject/airflow-project/logs/dag_processor_manager/dag_processor_manager.log
+task_log_reader = task
+
+[metrics]
+statsd_on = False
+statsd_host = localhost
+statsd_port = 8125
+statsd_prefix = airflow
+
+[secrets]
+backend = airflow.providers.hashicorp.secrets.vault.VaultBackend
+backend_kwargs = {"connections_path": "connections", "variables_path": "variables", "url": "http://127.0.0.1:8200", "mount_point": "airflow"}
+
+[cli]
+api_client = airflow.api.client.local_client
+endpoint_url = http://localhost:8080
+
+[api]
+auth_backend = airflow.api.auth.backend.session
+maximum_page_limit = 100
+fallback_page_limit = 100
+EOF
+    
+    echo "✅ Airflow configuration updated"
+}
+
+# ==============================================================================
+# Function to create a comprehensive status check
+# ==============================================================================
+create_status_script() {
+    echo "📊 Creating enhanced status script..."
+    
+    cat > "$PROJECT_DIR/airflow-project/status_airflow.sh" << 'EOF'
+#!/bin/bash
+
+echo "📊 Airflow Service Status:"
+echo "=========================="
+
+# Check systemd services
+echo "🔧 Systemd Services:"
+systemctl status airflow-webserver --no-pager -l
+echo ""
+systemctl status airflow-scheduler --no-pager -l
+echo ""
+
+# Check if services are running
+if systemctl is-active --quiet airflow-webserver && systemctl is-active --quiet airflow-scheduler; then
+    echo "✅ Both Airflow services are running"
+else
+    echo "❌ One or more Airflow services are not running"
+fi
+
+# Check DAG status
+echo ""
+echo "📋 DAG Status:"
+cd /home/ubuntu/OnlineRetailProject/airflow-project
+source venv/bin/activate
+airflow dags list
+
+# Check connections
+echo ""
+echo "🔗 Connection Status:"
+airflow connections list
+
+# Check recent DAG runs
+echo ""
+echo "🏃 Recent DAG Runs:"
+airflow dags list-runs --limit 5
+
+# Check disk space
+echo ""
+echo "💾 Disk Space:"
+df -h /home/ubuntu/OnlineRetailProject
+
+# Check memory usage
+echo ""
+echo "🧠 Memory Usage:"
+free -h
+
+# Check Airflow logs for errors
+echo ""
+echo "📝 Recent Airflow Errors:"
+tail -n 20 /home/ubuntu/OnlineRetailProject/airflow-project/logs/scheduler/latest/*.log 2>/dev/null | grep -i error || echo "No recent errors found"
+EOF
+    
+    chmod +x "$PROJECT_DIR/airflow-project/status_airflow.sh"
+    echo "✅ Enhanced status script created"
+}
+
+# ==============================================================================
+# Function to create a comprehensive health check
+# ==============================================================================
+create_health_check() {
+    echo "🏥 Creating health check script..."
+    
+    cat > "$PROJECT_DIR/airflow-project/health_check.sh" << 'EOF'
+#!/bin/bash
+
+echo "🏥 Airflow Health Check"
+echo "======================"
+
+# Check if virtual environment exists
+if [ ! -d "/home/ubuntu/OnlineRetailProject/airflow-project/venv" ]; then
+    echo "❌ Virtual environment not found"
+    exit 1
+fi
+
+# Check if Airflow is installed
+source /home/ubuntu/OnlineRetailProject/airflow-project/venv/bin/activate
+if ! command -v airflow &> /dev/null; then
+    echo "❌ Airflow not installed"
+    exit 1
+fi
+
+# Check if DAGs are loading
+echo "🔍 Checking DAG loading..."
+dag_errors=$(airflow dags list-import-errors 2>/dev/null | wc -l)
+if [ "$dag_errors" -gt 0 ]; then
+    echo "⚠️  DAG import errors detected"
+    airflow dags list-import-errors
+else
+    echo "✅ No DAG import errors"
+fi
+
+# Check if services are running
+echo "🔧 Checking service status..."
+if systemctl is-active --quiet airflow-webserver && systemctl is-active --quiet airflow-scheduler; then
+    echo "✅ Airflow services are running"
+else
+    echo "❌ Airflow services are not running"
+    exit 1
+fi
+
+# Check web interface
+echo "🌐 Checking web interface..."
+if curl -s http://localhost:8080 > /dev/null; then
+    echo "✅ Web interface is accessible"
+else
+    echo "❌ Web interface is not accessible"
+fi
+
+# Check database
+echo "🗄️  Checking database..."
+if airflow db check; then
+    echo "✅ Database is healthy"
+else
+    echo "❌ Database issues detected"
+fi
+
+echo "✅ Health check completed successfully"
+EOF
+    
+    chmod +x "$PROJECT_DIR/airflow-project/health_check.sh"
+    echo "✅ Health check script created"
+}
+
+# ==============================================================================
+# Function to create an auto-recovery script
+# ==============================================================================
+create_auto_recovery() {
+    echo "🔄 Creating auto-recovery script..."
+    
+    cat > "$PROJECT_DIR/airflow-project/auto_recovery.sh" << 'EOF'
+#!/bin/bash
+
+echo "🔄 Airflow Auto-Recovery"
+echo "========================"
+
+# Function to restart services
+restart_services() {
+    echo "🔄 Restarting Airflow services..."
+    sudo systemctl restart airflow-webserver
+    sudo systemctl restart airflow-scheduler
+    sleep 10
+    
+    # Check if services are running
+    if systemctl is-active --quiet airflow-webserver && systemctl is-active --quiet airflow-scheduler; then
+        echo "✅ Services restarted successfully"
+        return 0
+    else
+        echo "❌ Services failed to restart"
+        return 1
+    fi
+}
+
+# Function to reinitialize database
+reinitialize_db() {
+    echo "🗄️  Reinitializing database..."
+    cd /home/ubuntu/OnlineRetailProject/airflow-project
+    source venv/bin/activate
+    airflow db init
+    airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com
+    echo "✅ Database reinitialized"
+}
+
+# Function to clean up and restart
+full_restart() {
+    echo "🧹 Performing full restart..."
+    
+    # Stop services
+    sudo systemctl stop airflow-webserver airflow-scheduler
+    
+    # Clean up processes
+    pkill -f airflow || true
+    sleep 5
+    
+    # Restart services
+    restart_services
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Full restart completed successfully"
+    else
+        echo "❌ Full restart failed"
+        exit 1
+    fi
+}
+
+# Check current status
+if ! systemctl is-active --quiet airflow-webserver || ! systemctl is-active --quiet airflow-scheduler; then
+    echo "⚠️  Services are not running, attempting restart..."
+    restart_services
+    
+    if [ $? -ne 0 ]; then
+        echo "🔄 Attempting full restart..."
+        full_restart
+    fi
+else
+    echo "✅ Services are running normally"
+fi
+
+echo "✅ Auto-recovery completed"
+EOF
+    
+    chmod +x "$PROJECT_DIR/airflow-project/auto_recovery.sh"
+    echo "✅ Auto-recovery script created"
+}
+
 # ==============================================================================
 # Clean up existing files and directories
 # ==============================================================================
@@ -40,6 +426,73 @@ rm -f "$PROJECT_DIR/airflow-project/view_logs.sh"
 
 # Remove backup directory if it exists
 rm -rf "$PROJECT_DIR/airflow-project-backup"
+
+# Function to clean up Python environments
+cleanup_python_env() {
+    echo "🐍 Cleaning up Python environments..."
+    
+    # Remove existing virtual environments
+    rm -rf "$PROJECT_DIR/airflow-project/venv"
+    rm -rf "$PROJECT_DIR/airflow-project/env"
+    rm -rf "$PROJECT_DIR/airflow-project/.venv"
+    
+    # Clean pip cache
+    pip cache purge 2>/dev/null || true
+    
+    # Remove any existing Airflow installations
+    pip uninstall -y apache-airflow astro-sdk-python astronomer-cosmos 2>/dev/null || true
+    
+    echo "✅ Python environment cleanup completed"
+}
+
+# Function to clean up Airflow installations
+cleanup_airflow() {
+    echo "🪶 Cleaning up existing Airflow installations..."
+    
+    # Stop any running Airflow services
+    sudo systemctl stop airflow-webserver 2>/dev/null || true
+    sudo systemctl stop airflow-scheduler 2>/dev/null || true
+    
+    # Remove systemd services
+    sudo systemctl disable airflow-webserver 2>/dev/null || true
+    sudo systemctl disable airflow-scheduler 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/airflow-webserver.service
+    sudo rm -f /etc/systemd/system/airflow-scheduler.service
+    
+    # Remove Airflow home directory
+    rm -rf "$AIRFLOW_HOME"
+    
+    # Remove any existing Airflow databases
+    rm -f "$AIRFLOW_HOME/airflow.db" 2>/dev/null || true
+    rm -f "$AIRFLOW_HOME/unittests.cfg" 2>/dev/null || true
+    
+    # Clean up any existing Airflow logs
+    rm -rf "$PROJECT_DIR/airflow-project/logs"
+    
+    echo "✅ Airflow cleanup completed"
+}
+
+# Function to clean up Docker artifacts
+cleanup_docker_artifacts() {
+    echo "🐳 Cleaning up Docker artifacts..."
+    
+    # Stop and remove any existing containers
+    docker stop $(docker ps -aq) 2>/dev/null || true
+    docker rm $(docker ps -aq) 2>/dev/null || true
+    
+    # Remove any existing Airflow Docker images
+    docker rmi $(docker images | grep airflow | awk '{print $3}') 2>/dev/null || true
+    
+    # Clean up Docker system
+    docker system prune -f 2>/dev/null || true
+    
+    echo "✅ Docker artifacts cleanup completed"
+}
+
+# Execute cleanup functions
+cleanup_python_env
+cleanup_airflow
+cleanup_docker_artifacts
 
 echo "✅ Cleanup completed"
 
@@ -71,6 +524,33 @@ handle_package_locks() {
     sleep 2
 }
 
+# Function to clean up malformed package manager artifacts
+cleanup_package_manager() {
+    echo "🧹 Cleaning up package manager artifacts..."
+    
+    # Remove any malformed repository entries
+    sudo rm -f /etc/apt/sources.list.d/*.list.save
+    sudo rm -f /etc/apt/sources.list.d/*.list.dpkg-*
+    
+    # Clean up any corrupted GPG keys
+    sudo rm -f /etc/apt/trusted.gpg.d/*.gpg~
+    sudo rm -f /etc/apt/keyrings/*.gpg~
+    
+    # Remove any malformed entries from sources.list
+    if [ -f /etc/apt/sources.list ]; then
+        # Remove lines with backslashes or malformed URLs
+        sudo sed -i '/.*\\/d' /etc/apt/sources.list
+        sudo sed -i '/.*\\\\/d' /etc/apt/sources.list
+        sudo sed -i '/.*https.*\\/d' /etc/apt/sources.list
+    fi
+    
+    # Clean up apt cache
+    sudo apt-get clean
+    sudo apt-get autoclean
+    
+    echo "✅ Package manager cleanup completed"
+}
+
 # Function to kill any background package manager processes
 kill_background_processes() {
     echo "🔧 Checking for background package manager processes..."
@@ -93,6 +573,9 @@ kill_background_processes() {
 
 # Kill any background processes first
 kill_background_processes
+
+# Clean up package manager artifacts
+cleanup_package_manager
 
 # Handle any existing locks before starting
 handle_package_locks
@@ -202,6 +685,8 @@ cleanup_docker_repo() {
     # Remove any old/broken Docker repo files
     sudo rm -f /etc/apt/sources.list.d/docker.list
     sudo rm -f /etc/apt/sources.list.d/docker-ce.list
+    sudo rm -f /etc/apt/sources.list.d/docker.list.save
+    sudo rm -f /etc/apt/sources.list.d/docker-ce.list.save
     
     # Check if there are any malformed Docker entries in sources.list
     if grep -q "docker.com/linux/ubuntu.*\\" /etc/apt/sources.list; then
@@ -215,15 +700,26 @@ cleanup_docker_repo() {
         sudo sed -i '/docker.com.*\\\\/d' /etc/apt/sources.list
     fi
     
+    # Remove any malformed Docker entries with spaces or special characters
+    if grep -q "docker.com.*[[:space:]]" /etc/apt/sources.list; then
+        echo "⚠️  Found malformed Docker entries with spaces, removing..."
+        sudo sed -i '/docker.com.*[[:space:]]/d' /etc/apt/sources.list
+    fi
+    
     # Remove any Docker-related GPG keys that might be corrupted
     sudo rm -f /usr/share/keyrings/docker-archive-keyring.gpg
     sudo rm -f /etc/apt/trusted.gpg.d/docker.gpg
     sudo rm -f /etc/apt/keyrings/docker.asc
     sudo rm -f /etc/apt/keyrings/docker.gpg
     sudo rm -f /usr/share/keyrings/docker.gpg
+    sudo rm -f /etc/apt/keyrings/docker*.gpg
+    sudo rm -f /etc/apt/keyrings/docker*.asc
     
     # Clean up any corrupted Docker keyring directories
     sudo rm -rf /etc/apt/keyrings/docker*
+    
+    # Remove any malformed Docker repository files in sources.list.d
+    find /etc/apt/sources.list.d/ -name "*docker*" -type f -exec grep -l "\\" {} \; | xargs -r sudo rm -f
     
     echo "✅ Docker repository cleanup completed"
 }
@@ -234,8 +730,19 @@ cleanup_docker_repo
 # Verify apt update works after cleanup
 echo "🔍 Verifying package manager is working after cleanup..."
 if ! sudo apt-get update -y; then
-    echo "❌ Package manager still has issues after cleanup. Exiting."
-    exit 1
+    echo "❌ Package manager still has issues after cleanup. Attempting additional cleanup..."
+    
+    # Additional cleanup steps
+    sudo rm -f /etc/apt/sources.list.d/*.list.save
+    sudo rm -f /etc/apt/sources.list.d/*.list.dpkg-*
+    sudo apt-get clean
+    sudo apt-get autoclean
+    
+    # Try again
+    if ! sudo apt-get update -y; then
+        echo "❌ Package manager still has issues after additional cleanup. Exiting."
+        exit 1
+    fi
 fi
 echo "✅ Package manager verified working"
 
@@ -348,7 +855,12 @@ cryptography==41.0.7
 redis>=4.5.2,<5.0.0
 celery==5.3.4
 snowflake-connector-python==3.6.0
+astro-sdk-python[snowflake,postgres]==1.8.1
+astronomer-cosmos==1.10.1
+pydantic==2.11.7
 EOF
+
+echo "✅ Requirements.txt created with Astro SDK dependencies"
 
 # ==============================================================================
 # Set Up Python Environment
@@ -382,32 +894,114 @@ export AIRFLOW_HOME="$AIRFLOW_HOME"
 # Create Airflow directory
 mkdir -p "$AIRFLOW_HOME"
 
-# Initialize Airflow database
-airflow db init
+# Initialize Airflow database with error handling
+init_airflow_db() {
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo "🗄️  Attempting to initialize Airflow database (attempt $attempt/$max_attempts)..."
+        
+        if airflow db init; then
+            echo "✅ Airflow database initialized successfully"
+            return 0
+        else
+            echo "❌ Database initialization failed (attempt $attempt)"
+            
+            # Check if it's a Vault backend issue
+            if grep -q "VaultError" /tmp/airflow_error.log 2>/dev/null || airflow db init 2>&1 | grep -q "VaultError"; then
+                echo "🔧 Removing Vault backend configuration..."
+                sed -i '/^\[secrets\]/,/^\[/d' "$AIRFLOW_HOME/airflow.cfg"
+                echo "✅ Vault backend configuration removed"
+            fi
+            
+            attempt=$((attempt + 1))
+            sleep 2
+        fi
+    done
+    
+    echo "❌ Failed to initialize Airflow database after $max_attempts attempts"
+    exit 1
+}
 
-# Create Airflow user
-airflow users create \
-    --username "$AIRFLOW_USER" \
-    --firstname Admin \
-    --lastname User \
-    --role Admin \
-    --email "$AIRFLOW_EMAIL" \
-    --password "$AIRFLOW_PASSWORD"
+init_airflow_db
+
+# Create Airflow user with error handling
+create_airflow_user() {
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo "👤 Attempting to create Airflow user (attempt $attempt/$max_attempts)..."
+        
+        if airflow users create \
+            --username "$AIRFLOW_USER" \
+            --firstname Admin \
+            --lastname User \
+            --role Admin \
+            --email "$AIRFLOW_EMAIL" \
+            --password "$AIRFLOW_PASSWORD"; then
+            echo "✅ Airflow user created successfully"
+            return 0
+        else
+            echo "❌ User creation failed (attempt $attempt)"
+            
+            # Check if it's an executor compatibility issue
+            if grep -q "cannot use SQLite with the LocalExecutor" /tmp/airflow_error.log 2>/dev/null; then
+                echo "🔧 Fixing executor configuration..."
+                sed -i 's/executor = LocalExecutor/executor = SequentialExecutor/' "$AIRFLOW_HOME/airflow.cfg"
+                sed -i 's/sql_alchemy_conn = sqlite:\/\/\/.*airflow\.db/[database]\nsql_alchemy_conn = sqlite:\/\/\/'$AIRFLOW_HOME'\/airflow.db/' "$AIRFLOW_HOME/airflow.cfg"
+                echo "✅ Executor configuration fixed"
+            fi
+            
+            attempt=$((attempt + 1))
+            sleep 2
+        fi
+    done
+    
+    echo "❌ Failed to create Airflow user after $max_attempts attempts"
+    exit 1
+}
+
+create_airflow_user
 
 # ==============================================================================
 # Set Up Airflow Configuration
 # ==============================================================================
 echo "🔧 Setting up Airflow configuration..."
 
+# Clean up any existing malformed configuration
+cleanup_airflow_config() {
+    echo "🧹 Cleaning up existing Airflow configuration..."
+    
+    # Remove any existing airflow.cfg that might have malformed settings
+    if [ -f "$AIRFLOW_HOME/airflow.cfg" ]; then
+        echo "📋 Backing up existing airflow.cfg..."
+        cp "$AIRFLOW_HOME/airflow.cfg" "$AIRFLOW_HOME/airflow.cfg.backup.$(date +%Y%m%d_%H%M%S)"
+        
+        # Remove malformed sql_alchemy_conn from [core] section
+        sed -i '/^\[core\]/,/^\[/ { /sql_alchemy_conn/d; }' "$AIRFLOW_HOME/airflow.cfg"
+        
+        # Remove any Vault backend configuration
+        sed -i '/^\[secrets\]/,/^\[/d' "$AIRFLOW_HOME/airflow.cfg"
+        
+        echo "✅ Existing configuration cleaned up"
+    fi
+}
+
+cleanup_airflow_config
+
 # Create custom airflow.cfg
 cat > "$AIRFLOW_HOME/airflow.cfg" << EOF
 [core]
 dags_folder = $PROJECT_DIR/airflow-project/dags
 plugins_folder = $PROJECT_DIR/airflow-project/plugins
-executor = LocalExecutor
-sql_alchemy_conn = sqlite:///$AIRFLOW_HOME/airflow.db
+executor = SequentialExecutor
 load_examples = False
 fernet_key = $(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
+[database]
+sql_alchemy_conn = sqlite:///$AIRFLOW_HOME/airflow.db
 
 [webserver]
 web_server_host = 0.0.0.0
@@ -421,14 +1015,6 @@ scheduler_heartbeat_sec = 5
 [logging]
 base_log_folder = $PROJECT_DIR/airflow-project/logs
 dag_processor_manager_log_location = $PROJECT_DIR/airflow-project/logs/dag_processor_manager/dag_processor_manager.log
-
-[celery]
-broker_url = redis://localhost:6379/0
-result_backend = db+postgresql://airflow:airflow@localhost/airflow
-
-[secrets]
-backend = airflow.providers.hashicorp.secrets.vault.VaultBackend
-backend_kwargs = {"connections_path": "connections", "variables_path": "variables", "config_path": "config", "url": "http://127.0.0.1:8200", "mount_point": "airflow"}
 EOF
 
 # ==============================================================================
