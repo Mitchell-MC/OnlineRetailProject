@@ -196,6 +196,13 @@ def ecommerce_daily_etl_sdk():
             })
         
         df = pd.DataFrame(demo_data)
+        # Ensure all columns are present and in correct order
+        expected_columns = ['user_id', 'event_time', 'event_type', 'product_id', 'price', 'brand', 'category_code']
+        for col in expected_columns:
+            if col not in df.columns:
+                df[col] = None
+        df = df[expected_columns]  # Reorder columns to match expected structure
+        
         print(f"✅ Created {len(df)} demo cart records")
         return df
 
@@ -226,6 +233,13 @@ def ecommerce_daily_etl_sdk():
             })
         
         df = pd.DataFrame(demo_data)
+        # Ensure all columns are present and in correct order
+        expected_columns = ['user_id', 'event_time', 'event_type', 'product_id', 'price', 'brand', 'category_code']
+        for col in expected_columns:
+            if col not in df.columns:
+                df[col] = None
+        df = df[expected_columns]  # Reorder columns to match expected structure
+        
         print(f"✅ Created {len(df)} demo purchase records")
         return df
 
@@ -255,8 +269,69 @@ def ecommerce_daily_etl_sdk():
             })
         
         df = pd.DataFrame(demo_data)
+        # Ensure all columns are present and in correct order
+        expected_columns = ['user_id', 'event_time', 'event_type', 'product_id', 'price', 'brand', 'category_code']
+        for col in expected_columns:
+            if col not in df.columns:
+                df[col] = None
+        df = df[expected_columns]  # Reorder columns to match expected structure
+        
         print(f"✅ Created {len(df)} demo view records")
         return df
+
+    # Ensure tables exist with correct structure before loading data
+    @aql.transform(conn_id=SNOWFLAKE_CONN_ID)
+    def create_staging_tables():
+        return """
+        -- Create STG_EVENTS_CART table
+        CREATE TABLE IF NOT EXISTS ANALYTICS.STG_EVENTS_CART (
+            user_id STRING,
+            event_time TIMESTAMP,
+            event_type STRING,
+            product_id STRING,
+            price DECIMAL(10,2),
+            brand STRING,
+            category_code STRING
+        );
+        
+        -- Create STG_EVENTS_PURCHASE table
+        CREATE TABLE IF NOT EXISTS ANALYTICS.STG_EVENTS_PURCHASE (
+            user_id STRING,
+            event_time TIMESTAMP,
+            event_type STRING,
+            product_id STRING,
+            price DECIMAL(10,2),
+            brand STRING,
+            category_code STRING
+        );
+        
+        -- Create STG_EVENTS_VIEW table
+        CREATE TABLE IF NOT EXISTS ANALYTICS.STG_EVENTS_VIEW (
+            user_id STRING,
+            event_time TIMESTAMP,
+            event_type STRING,
+            product_id STRING,
+            price DECIMAL(10,2),
+            brand STRING,
+            category_code STRING
+        );
+        
+        -- Create STG_EVENTS_COMBINED table
+        CREATE TABLE IF NOT EXISTS ANALYTICS.STG_EVENTS_COMBINED (
+            user_id STRING,
+            event_time TIMESTAMP,
+            event_type STRING,
+            product_id STRING,
+            price DECIMAL(10,2),
+            brand STRING,
+            category_code STRING
+        );
+        
+        SELECT 'Tables created successfully' as status;
+        """
+
+    # Create tables first
+    create_tables = create_staging_tables()
 
     # Load demo data into staging tables
     cart_data = create_demo_cart_data(output_table=SNOWFLAKE_STG_CART)
@@ -275,7 +350,7 @@ def ecommerce_daily_etl_sdk():
             CAST(price AS DOUBLE) AS price,
             CAST(brand AS STRING) AS brand,
             CAST(category_code AS STRING) AS category_code
-        FROM tmp_astro.STG_EVENTS_CART
+        FROM ANALYTICS.STG_EVENTS_CART
         UNION ALL
         SELECT 
             CAST(user_id AS STRING),
@@ -285,7 +360,7 @@ def ecommerce_daily_etl_sdk():
             CAST(price AS DOUBLE),
             CAST(brand AS STRING),
             CAST(category_code AS STRING)
-        FROM tmp_astro.STG_EVENTS_PURCHASE
+        FROM ANALYTICS.STG_EVENTS_PURCHASE
         UNION ALL
         SELECT 
             CAST(user_id AS STRING),
@@ -295,7 +370,7 @@ def ecommerce_daily_etl_sdk():
             CAST(price AS DOUBLE),
             CAST(brand AS STRING),
             CAST(category_code AS STRING)
-        FROM tmp_astro.STG_EVENTS_VIEW
+        FROM ANALYTICS.STG_EVENTS_VIEW
         """
 
     combined_events = combine_events(output_table=SNOWFLAKE_COMBINED_STG)
@@ -313,7 +388,7 @@ def ecommerce_daily_etl_sdk():
             COUNT(CASE WHEN event_type = 'purchase' THEN 1 END) as TOTAL_PURCHASES,
             SUM(CASE WHEN event_type = 'purchase' THEN CAST(price AS DOUBLE) ELSE 0 END) as TOTAL_SPEND,
             MAX(CAST(event_time AS TIMESTAMP)) as LAST_SEEN_DATE
-        FROM tmp_astro.STG_EVENTS_COMBINED
+        FROM ANALYTICS.STG_EVENTS_COMBINED
         WHERE user_id IS NOT NULL
         GROUP BY user_id
         """
@@ -321,6 +396,6 @@ def ecommerce_daily_etl_sdk():
     transformed_table = transform_events(output_table=Table(name="CUSTOMER_360_PROFILE", conn_id=SNOWFLAKE_CONN_ID))
 
     # Set dependencies
-    cart_data >> purchase_data >> view_data >> combined_events >> transformed_table
+    create_tables >> cart_data >> purchase_data >> view_data >> combined_events >> transformed_table
 
 ecommerce_daily_etl_sdk()

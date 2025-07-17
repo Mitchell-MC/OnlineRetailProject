@@ -1,0 +1,79 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "DynamoDBFullAccess",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:CreateTable",
+                "dynamodb:DeleteTable",
+                "dynamodb:DescribeTable",
+                "dynamodb:ListTables",
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:BatchGetItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:Query",
+                "dynamodb:Scan",
+                "dynamodb:CreateBackup",
+                "dynamodb:DescribeBackup",
+                "dynamodb:ListBackups",
+                "dynamodb:RestoreTableFromBackup"
+            ],
+            "Resource": [
+                "arn:aws:dynamodb:*:*:table/ecommerce_*",
+                "arn:aws:dynamodb:*:*:table/ecommerce_*/index/*",
+                "arn:aws:dynamodb:*:*:backup/*"
+            ]
+        },
+        {
+            "Sid": "CloudWatchLogsAccess",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogStreams",
+                "logs:DescribeLogGroups"
+            ],
+            "Resource": [
+                "arn:aws:logs:*:*:log-group:/aws/ec2/ecommerce-app",
+                "arn:aws:logs:*:*:log-group:/aws/ec2/ecommerce-app:*"
+            ]
+        },
+        {
+            "Sid": "EC2InstanceMetadata",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeInstances",
+                "ec2:DescribeTags"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "STSAssumeRole",
+            "Effect": "Allow",
+            "Action": [
+                "sts:GetCallerIdentity",
+                "sts:AssumeRole"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "S3AccessForBackups",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::ecommerce-backups",
+                "arn:aws:s3:::ecommerce-backups/*"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,236 @@
+Of course. Let's walk through Phase 3 in detail.
+
+The goal of this phase is to take the clean, aggregated data from your Snowflake warehouse and make it available to two very different audiences: the live e-commerce website which needs millisecond-speed recommendations, and business analysts who need to run complex queries for operational dashboards.
+
+
+
+This phase is broken into three distinct parts.
+
+Part 1: Generate Product Recommendations in Snowflake
+First, we need to create the recommendations themselves. We will use our existing data in Snowflake to generate a simple but effective recommendation model: "Top 5 Most Purchased Products in a User's Favorite Category." This is an "offline" model because we run it as a batch process.
+
+Application Steps (Snowflake UI)
+Log in to your Snowflake Worksheet. Ensure you are using a role that has access to ECOMMERCE_DB.
+
+Run the Recommendation Logic: Copy and run the following SQL query. This query joins the user profiles with the raw event data to find the most popular products within each user's most-viewed category and saves the results into a new table called USER_PRODUCT_RECOMMENDATIONS.
+
+SQL
+
+-- Use the correct database and schema
+USE ECOMMERCE_DB.ANALYTICS;
+
+-- Create a new table to store the final recommendations
+CREATE OR REPLACE TABLE USER_PRODUCT_RECOMMENDATIONS AS
+WITH
+-- Step 1: Get the raw purchase data, cleaning it up a bit
+ProductPurchases AS (
+    SELECT
+        product_id,
+        category_code
+    FROM ECOMMERCE_DB.RAW_DATA.USER_EVENTS -- Assuming your raw data is here
+    WHERE event_type = 'purchase'
+      AND category_code IS NOT NULL
+      AND product_id IS NOT NULL
+),
+-- Step 2: Calculate the top 5 most purchased products in each category
+TopProductsPerCategory AS (
+    SELECT
+        category_code,
+        product_id,
+        COUNT(*) as purchase_count,
+        -- Rank products by purchase count within each category
+        ROW_NUMBER() OVER (PARTITION BY category_code ORDER BY purchase_count DESC) as rnk
+    FROM ProductPurchases
+    GROUP BY 1, 2
+    QUALIFY rnk <= 5 -- Keep only the top 5
+),
+-- Step 3: Aggregate the top 5 product IDs into a single array for each category
+CategoryRecommendations AS (
+    SELECT
+        category_code,
+        -- Group the product IDs into a list
+        ARRAY_AGG(product_id) WITHIN GROUP (ORDER BY rnk) as recommended_products
+    FROM TopProductsPerCategory
+    GROUP BY 1
+)
+-- Step 4: Join the recommendations back to our Customer 360 profiles
+-- This assigns a list of recommended products to each user based on their favorite category
+SELECT
+    prof.USER_ID,
+    rec.recommended_products
+FROM CUSTOMER_360_PROFILE prof
+JOIN CategoryRecommendations rec
+  ON prof.MOST_VIEWED_CATEGORY = rec.category_code;
+
+-- Verify the results
+SELECT * FROM USER_PRODUCT_RECOMMENDATIONS LIMIT 10;
+You now have a table in Snowflake where each user_id is mapped to a list of recommended product_ids.
+
+Part 2: Serve Recommendations via a Low-Latency NoSQL Database
+Snowflake is not designed for fast, single-row lookups from a website. For that, we need a NoSQL database like AWS DynamoDB. We will export our recommendations from Snowflake to DynamoDB.
+
+
+Application Steps (AWS Console)
+Navigate to DynamoDB: In the AWS Console, search for and go to the DynamoDB service.
+
+Create Table:
+
+Click "Create table".
+
+Table name: product_recommendations
+
+Partition key (Primary Key): user_id
+
+Data type: Number
+
+Leave all other settings as default and click "Create table".
+
+Code: The Export Script
+This Python script connects to Snowflake, reads the recommendations, and writes them to DynamoDB.
+
+Install Libraries:
+
+Bash
+
+pip install "snowflake-connector-python[pandas]" boto3
+Create the script (export_to_dynamodb.py):
+
+Python
+
+import os
+import json
+import boto3
+import snowflake.connector
+from decimal import Decimal
+
+# --- Configuration ---
+# Assumes AWS credentials are set as environment variables
+# Snowflake credentials should be securely stored, e.g., in environment variables
+SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
+SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
+SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
+SNOWFLAKE_WAREHOUSE = "COMPUTE_WH"
+SNOWFLAKE_DATABASE = "ECOMMERCE_DB"
+SNOWFLAKE_SCHEMA = "ANALYTICS"
+
+DYNAMODB_TABLE_NAME = 'product_recommendations'
+
+def fetch_snowflake_data():
+    """Fetches product recommendations from Snowflake."""
+    print("Connecting to Snowflake...")
+    with snowflake.connector.connect(
+        user=SNOWFLAKE_USER,
+        password=SNOWFLAKE_PASSWORD,
+        account=SNOWFLAKE_ACCOUNT,
+        warehouse=SNOWFLAKE_WAREHOUSE,
+        database=SNOWFLAKE_DATABASE,
+        schema=SNOWFLAKE_SCHEMA
+    ) as conn:
+        print("Successfully connected. Fetching data...")
+        cursor = conn.cursor()
+        cursor.execute("SELECT USER_ID, RECOMMENDED_PRODUCTS FROM USER_PRODUCT_RECOMMENDATIONS")
+        # Fetch all results
+        results = cursor.fetchall()
+        print(f"Fetched {len(results)} rows from Snowflake.")
+        return results
+
+def write_to_dynamodb(data):
+    """Writes data in batches to DynamoDB."""
+    print("Connecting to DynamoDB...")
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table(DYNAMODB_TABLE_NAME)
+
+    print(f"Starting batch write to {DYNAMODB_TABLE_NAME}...")
+    with table.batch_writer() as batch:
+        for row in data:
+            user_id, recommended_products = row
+            # The recommended_products from Snowflake is a string representation of a list
+            # We need to parse it. It may look like '[\n  123,\n  456\n]'
+            product_list = json.loads(recommended_products)
+
+            batch.put_item(
+                Item={
+                    'user_id': int(user_id),
+                    'recommended_products': [int(p) for p in product_list]
+                }
+            )
+    print("Batch write to DynamoDB complete.")
+
+if __name__ == "__main__":
+    snowflake_data = fetch_snowflake_data()
+    if snowflake_data:
+        write_to_dynamodb(snowflake_data)
+
+Now, when your e-commerce website needs recommendations for a user, it can make a simple, super-fast query to this DynamoDB table using the user_id.
+
+Part 3: Populate an Operational Dashboard Database
+For business analysts, we need to provide the aggregated 
+
+CUSTOMER_360_PROFILE data in a traditional relational database like PostgreSQL where they can connect BI tools.
+
+Application Steps (Docker)
+The easiest way to run PostgreSQL locally is with Docker.
+
+Run PostgreSQL in Docker: Open a terminal and run this command. It will start a PostgreSQL container, set a password, and expose the port.
+
+Bash
+
+docker run --name postgres-dashboard -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d postgres
+Code: The Export Script
+This script reads the CUSTOMER_360_PROFILE table from Snowflake and writes it to PostgreSQL.
+
+Install Libraries:
+
+Bash
+
+pip install "snowflake-connector-python[pandas]" psycopg2-binary sqlalchemy pandas
+Create the script (export_to_postgres.py):
+
+Python
+
+import os
+import snowflake.connector
+import pandas as pd
+from sqlalchemy import create_engine
+
+# --- Configuration ---
+SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
+SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
+SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
+
+# PostgreSQL connection string
+POSTGRES_CONN_STRING = "postgresql://postgres:mysecretpassword@localhost:5432/postgres"
+
+def fetch_customer_profiles():
+    """Fetches the customer 360 profiles from Snowflake."""
+    print("Connecting to Snowflake...")
+    with snowflake.connector.connect(
+        user=SNOWFLAKE_USER,
+        password=SNOWFLAKE_PASSWORD,
+        account=SNOWFLAKE_ACCOUNT,
+        warehouse="COMPUTE_WH",
+        database="ECOMMERCE_DB",
+        schema="ANALYTICS"
+    ) as conn:
+        print("Fetching customer profiles...")
+        query = "SELECT * FROM CUSTOMER_360_PROFILE"
+        df = pd.read_sql(query, conn)
+        print(f"Fetched {len(df)} profiles.")
+        # Snowflake column names are often uppercase, convert to lowercase for PostgreSQL
+        df.columns = [x.lower() for x in df.columns]
+        return df
+
+def write_to_postgres(df):
+    """Writes the DataFrame to a PostgreSQL table."""
+    print("Connecting to PostgreSQL...")
+    engine = create_engine(POSTGRES_CONN_STRING)
+    print("Writing data to customer_profiles table...")
+    # Use pandas to_sql to write the dataframe. 'replace' will drop the table if it exists.
+    df.to_sql('customer_profiles', engine, if_exists='replace', index=False)
+    print("Write to PostgreSQL complete.")
+
+if __name__ == "__main__":
+    customer_df = fetch_customer_profiles()
+    if not customer_df.empty:
+        write_to_postgres(customer_df)
+After running this script, business analysts can connect any standard BI tool to your PostgreSQL database and start building dashboards from the customer_profiles table.
