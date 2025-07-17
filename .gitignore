@@ -11,6 +11,23 @@ CSVDump/2019-Oct.csv
 *.log
 airflow-project/logs/
 
+# Secrets and credentials - DO NOT COMMIT
+**/run_snowflake_phase3.py
+**/run_final_warehouse.py
+setup_docker_airflow.sh
+Updated_env.env
+airflow_connections.env
+**/airflow.env
+**/*credentials*
+**/*secrets*
+**/connection_config.py
+**/config_with_credentials.py
+
+# Environment files with actual credentials
+.env.local
+.env.production
+*.env.real
+
 # C extensions
 *.so
 
