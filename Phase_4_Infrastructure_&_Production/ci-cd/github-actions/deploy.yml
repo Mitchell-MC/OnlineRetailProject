@@ -1,0 +1,184 @@
+name: Deploy Online Retail Project
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - production
+
+env:
+  AWS_REGION: us-east-1
+  DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov flake8
+    
+    - name: Run linting
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Run tests
+      run: |
+        pytest --cov=./ --cov-report=xml
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Docker Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Build and push Kafka image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./Phase_1_Kafka_setup_&run
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/online-retail/kafka:${{ github.sha }}
+    
+    - name: Build and push Airflow image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./Phase_2_Airflow_setup_&run
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/online-retail/airflow:${{ github.sha }}
+    
+    - name: Build and push Spark image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./Phase_3_Data_Warehouse_and_Analytics_Tools
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/online-retail/spark:${{ github.sha }}
+
+  terraform-plan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.5.0"
+    
+    - name: Terraform Init
+      run: |
+        cd Phase_4_Infrastructure_&_Production/terraform
+        terraform init
+    
+    - name: Terraform Plan
+      run: |
+        cd Phase_4_Infrastructure_&_Production/terraform
+        terraform plan -var="environment=${{ github.event.inputs.environment || 'dev' }}" -out=tfplan
+      env:
+        TF_VAR_environment: ${{ github.event.inputs.environment || 'dev' }}
+
+  deploy:
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.5.0"
+    
+    - name: Terraform Apply
+      run: |
+        cd Phase_4_Infrastructure_&_Production/terraform
+        terraform apply -auto-approve tfplan
+      env:
+        TF_VAR_environment: ${{ github.event.inputs.environment || 'dev' }}
+    
+    - name: Deploy to Kubernetes
+      run: |
+        aws eks update-kubeconfig --name online-retail-cluster --region ${{ env.AWS_REGION }}
+        kubectl set image deployment/kafka kafka=${{ env.DOCKER_REGISTRY }}/online-retail/kafka:${{ github.sha }}
+        kubectl set image deployment/airflow airflow=${{ env.DOCKER_REGISTRY }}/online-retail/airflow:${{ github.sha }}
+        kubectl set image deployment/spark spark=${{ env.DOCKER_REGISTRY }}/online-retail/spark:${{ github.sha }}
+    
+    - name: Run smoke tests
+      run: |
+        # Wait for deployments to be ready
+        kubectl wait --for=condition=available --timeout=300s deployment/kafka
+        kubectl wait --for=condition=available --timeout=300s deployment/airflow
+        kubectl wait --for=condition=available --timeout=300s deployment/spark
+        
+        # Run basic health checks
+        curl -f http://kafka-service:9092/health || exit 1
+        curl -f http://airflow-service:8080/health || exit 1
+
+  notify:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Notify on success
+      if: needs.deploy.result == 'success'
+      run: |
+        echo "Deployment successful!"
+        # Add notification logic here (Slack, email, etc.)
+    
+    - name: Notify on failure
+      if: needs.deploy.result == 'failure'
+      run: |
+        echo "Deployment failed!"
+        # Add notification logic here (Slack, email, etc.) 
