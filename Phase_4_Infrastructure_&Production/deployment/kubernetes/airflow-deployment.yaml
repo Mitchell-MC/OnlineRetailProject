@@ -1,0 +1,257 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-webserver
+  namespace: online-retail
+  labels:
+    app: airflow
+    component: webserver
+    phase: "4"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+      component: webserver
+  template:
+    metadata:
+      labels:
+        app: airflow
+        component: webserver
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: airflow-webserver
+        image: apache/airflow:2.9.2
+        ports:
+        - containerPort: 8080
+          name: webserver
+        env:
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: "KubernetesExecutor"
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
+        - name: AIRFLOW__CORE__FERNET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: airflow-secrets
+              key: fernet-key
+        - name: AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION
+          value: "True"
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          value: "False"
+        - name: AIRFLOW__WEBSERVER__SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: airflow-secrets
+              key: webserver-secret-key
+        - name: AIRFLOW__KUBERNETES__NAMESPACE
+          value: "online-retail"
+        - name: AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY
+          value: "apache/airflow"
+        - name: AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG
+          value: "2.9.2"
+        - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS
+          value: "True"
+        - name: AIRFLOW__KUBERNETES__WORKER_PODS_CREATION_BATCH_SIZE
+          value: "1"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+        - name: logs
+          mountPath: /opt/airflow/logs
+        - name: plugins
+          mountPath: /opt/airflow/plugins
+      volumes:
+      - name: dags
+        configMap:
+          name: airflow-dags
+      - name: logs
+        emptyDir: {}
+      - name: plugins
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: online-retail
+  labels:
+    app: airflow
+    component: scheduler
+    phase: "4"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+      component: scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow
+        component: scheduler
+    spec:
+      containers:
+      - name: airflow-scheduler
+        image: apache/airflow:2.9.2
+        command: ["airflow", "scheduler"]
+        env:
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: "KubernetesExecutor"
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
+        - name: AIRFLOW__CORE__FERNET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: airflow-secrets
+              key: fernet-key
+        - name: AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION
+          value: "True"
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          value: "False"
+        - name: AIRFLOW__KUBERNETES__NAMESPACE
+          value: "online-retail"
+        - name: AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY
+          value: "apache/airflow"
+        - name: AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG
+          value: "2.9.2"
+        - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS
+          value: "True"
+        - name: AIRFLOW__KUBERNETES__WORKER_PODS_CREATION_BATCH_SIZE
+          value: "1"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+        - name: logs
+          mountPath: /opt/airflow/logs
+        - name: plugins
+          mountPath: /opt/airflow/plugins
+      volumes:
+      - name: dags
+        configMap:
+          name: airflow-dags
+      - name: logs
+        emptyDir: {}
+      - name: plugins
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-service
+  namespace: online-retail
+  labels:
+    app: airflow
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: webserver
+  selector:
+    app: airflow
+    component: webserver
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-dags
+  namespace: online-retail
+data:
+  ecommerce_daily_etl.py: |
+    # Airflow DAG for E-commerce ETL
+    from datetime import datetime, timedelta
+    from airflow import DAG
+    from airflow.operators.python_operator import PythonOperator
+    from airflow.operators.bash_operator import BashOperator
+    
+    default_args = {
+        'owner': 'data-team',
+        'depends_on_past': False,
+        'start_date': datetime(2024, 1, 1),
+        'email_on_failure': False,
+        'email_on_retry': False,
+        'retries': 1,
+        'retry_delay': timedelta(minutes=5),
+    }
+    
+    dag = DAG(
+        'ecommerce_daily_etl',
+        default_args=default_args,
+        description='Daily ETL pipeline for e-commerce data',
+        schedule_interval=timedelta(days=1),
+        catchup=False
+    )
+    
+    def extract_data():
+        # Extract data from Kafka
+        print("Extracting data from Kafka...")
+    
+    def transform_data():
+        # Transform data using Spark
+        print("Transforming data with Spark...")
+    
+    def load_data():
+        # Load data to Snowflake
+        print("Loading data to Snowflake...")
+    
+    extract_task = PythonOperator(
+        task_id='extract_data',
+        python_callable=extract_data,
+        dag=dag
+    )
+    
+    transform_task = PythonOperator(
+        task_id='transform_data',
+        python_callable=transform_data,
+        dag=dag
+    )
+    
+    load_task = PythonOperator(
+        task_id='load_data',
+        python_callable=load_data,
+        dag=dag
+    )
+    
+    extract_task >> transform_task >> load_task
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-secrets
+  namespace: online-retail
+type: Opaque
+data:
+  fernet-key: <base64-encoded-fernnet-key>
+  webserver-secret-key: <base64-encoded-secret-key> 
